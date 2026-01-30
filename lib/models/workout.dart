@@ -34,6 +34,7 @@ class StrengthWorkout extends Workout {
   StrengthWorkout({
     required String id,
     required String name,
-  })  : sets = [],
-        super(id: id, name: name, type: WorkoutType.strength);
+    List<WorkoutSet>? sets,
+  }) : sets = sets ?? [],
+       super(id: id, name: name, type: WorkoutType.strength);
 }

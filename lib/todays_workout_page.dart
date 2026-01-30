@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_fitness/data/workout_database.dart';
 import 'package:flutter_fitness/models/workout.dart';
 
 class TodaysWorkoutPage extends StatefulWidget {
@@ -9,15 +10,45 @@ class TodaysWorkoutPage extends StatefulWidget {
 }
 
 class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
-  final List<Workout> _workouts = [];
+  final WorkoutDatabase _db = WorkoutDatabase.instance;
+  late final DateTime _todayDate;
+  List<Workout> _workouts = [];
+  bool _isLoading = true;
 
-  void _addWorkout(Workout workout) {
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _todayDate = DateTime(now.year, now.month, now.day);
+    _loadWorkouts();
+  }
+
+  Future<void> _loadWorkouts() async {
+    final workouts = await _db.fetchWorkoutsForDate(_todayDate);
+    if (!mounted) {
+      return;
+    }
     setState(() {
-      _workouts.add(workout);
+      _workouts = workouts;
+      _isLoading = false;
     });
   }
 
-  void _deleteWorkout(String id) {
+  Future<void> _addWorkout(Workout workout) async {
+    await _db.insertWorkout(date: _todayDate, workout: workout);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _workouts = [..._workouts, workout];
+    });
+  }
+
+  Future<void> _deleteWorkout(String id) async {
+    await _db.deleteWorkout(id);
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _workouts.removeWhere((workout) => workout.id == id);
     });
@@ -36,47 +67,54 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Today\'s Workout'),
-      ),
-      body: ListView.builder(
-        itemCount: _workouts.length,
-        itemBuilder: (context, index) {
-          final workout = _workouts[index];
-          if (workout is StrengthWorkout) {
-            return _StrengthWorkoutListItem(
-              workout: workout,
-              onDelete: () => _deleteWorkout(workout.id),
-              onAddSet: (reps, weight, isBodyweight) {
-                setState(() {
-                  workout.sets.add(WorkoutSet(
-                    reps: reps,
-                    weight: weight,
-                    isBodyweight: isBodyweight,
-                  ));
-                });
+      appBar: AppBar(title: const Text('Today\'s Workout')),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _workouts.isEmpty
+          ? const Center(child: Text('No workouts logged yet.'))
+          : ListView.builder(
+              itemCount: _workouts.length,
+              itemBuilder: (context, index) {
+                final workout = _workouts[index];
+                if (workout is StrengthWorkout) {
+                  return _StrengthWorkoutListItem(
+                    workout: workout,
+                    onDelete: () => _deleteWorkout(workout.id),
+                    onAddSet: (reps, weight, isBodyweight) async {
+                      final newSet = WorkoutSet(
+                        reps: reps,
+                        weight: weight,
+                        isBodyweight: isBodyweight,
+                      );
+                      await _db.insertSet(workoutId: workout.id, set: newSet);
+                      if (!mounted) {
+                        return;
+                      }
+                      setState(() {
+                        workout.sets.add(newSet);
+                      });
+                    },
+                  );
+                } else if (workout is CardioWorkout) {
+                  String subtitle = 'Type: Cardio\n';
+                  if (workout.distance != null) {
+                    subtitle += 'Distance: ${workout.distance} miles ';
+                  }
+                  if (workout.time != null) {
+                    subtitle += 'Time: ${workout.time} minutes';
+                  }
+                  return ListTile(
+                    title: Text(workout.name),
+                    subtitle: Text(subtitle),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete),
+                      onPressed: () => _deleteWorkout(workout.id),
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
               },
-            );
-          } else if (workout is CardioWorkout) {
-            String subtitle = 'Type: Cardio\n';
-            if (workout.distance != null) {
-              subtitle += 'Distance: ${workout.distance} miles ';
-            }
-            if (workout.time != null) {
-              subtitle += 'Time: ${workout.time} minutes';
-            }
-            return ListTile(
-              title: Text(workout.name),
-              subtitle: Text(subtitle),
-              trailing: IconButton(
-                icon: const Icon(Icons.delete),
-                onPressed: () => _deleteWorkout(workout.id),
-              ),
-            );
-          }
-          return const SizedBox.shrink();
-        },
-      ),
+            ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddWorkoutDialog,
         child: const Icon(Icons.add),
@@ -123,11 +161,15 @@ class _AddWorkoutFormState extends State<_AddWorkoutForm> {
                 value: _type,
                 decoration: const InputDecoration(labelText: 'Workout Type'),
                 items: WorkoutType.values
-                    .map((type) => DropdownMenuItem(
-                          value: type,
-                          child: Text(type.toString().split('.').last[0].toUpperCase() +
-                              type.toString().split('.').last.substring(1)),
-                        ))
+                    .map(
+                      (type) => DropdownMenuItem(
+                        value: type,
+                        child: Text(
+                          type.toString().split('.').last[0].toUpperCase() +
+                              type.toString().split('.').last.substring(1),
+                        ),
+                      ),
+                    )
                     .toList(),
                 onChanged: (value) {
                   if (value != null) {
@@ -140,13 +182,17 @@ class _AddWorkoutFormState extends State<_AddWorkoutForm> {
               if (_type == WorkoutType.cardio) ...[
                 TextFormField(
                   key: const Key('distance_field'),
-                  decoration: const InputDecoration(labelText: 'Distance (miles)'),
+                  decoration: const InputDecoration(
+                    labelText: 'Distance (miles)',
+                  ),
                   keyboardType: TextInputType.number,
                   onSaved: (value) => _distance = double.tryParse(value ?? ''),
                 ),
                 TextFormField(
                   key: const Key('time_field'),
-                  decoration: const InputDecoration(labelText: 'Time (minutes)'),
+                  decoration: const InputDecoration(
+                    labelText: 'Time (minutes)',
+                  ),
                   keyboardType: TextInputType.number,
                   onSaved: (value) => _time = int.tryParse(value ?? ''),
                 ),
@@ -174,10 +220,7 @@ class _AddWorkoutFormState extends State<_AddWorkoutForm> {
                   time: _time,
                 );
               } else {
-                newWorkout = StrengthWorkout(
-                  id: id,
-                  name: _name,
-                );
+                newWorkout = StrengthWorkout(id: id, name: _name);
               }
               Navigator.of(context).pop(newWorkout);
             }
@@ -201,7 +244,8 @@ class _StrengthWorkoutListItem extends StatefulWidget {
   });
 
   @override
-  State<_StrengthWorkoutListItem> createState() => _StrengthWorkoutListItemState();
+  State<_StrengthWorkoutListItem> createState() =>
+      _StrengthWorkoutListItemState();
 }
 
 class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
@@ -222,7 +266,10 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(widget.workout.name, style: Theme.of(context).textTheme.titleLarge),
+                Text(
+                  widget.workout.name,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
                 IconButton(
                   icon: const Icon(Icons.delete),
                   onPressed: widget.onDelete,
@@ -230,7 +277,10 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
               ],
             ),
             const SizedBox(height: 8.0),
-            Text('Type: Strength', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Type: Strength',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8.0),
             ...widget.workout.sets.map((set) {
               if (set.isBodyweight) {
@@ -261,16 +311,21 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
                       const SizedBox(width: 8.0),
                       Expanded(
                         child: TextFormField(
-                          decoration: const InputDecoration(labelText: 'Weight (lbs)'),
+                          decoration: const InputDecoration(
+                            labelText: 'Weight (lbs)',
+                          ),
                           keyboardType: TextInputType.number,
                           enabled: !_isBodyweight,
                           validator: (value) {
-                            if (!_isBodyweight && (value == null || value.isEmpty)) {
+                            if (!_isBodyweight &&
+                                (value == null || value.isEmpty)) {
                               return 'Enter weight';
                             }
                             return null;
                           },
-                          onSaved: (value) => _weight = _isBodyweight ? null : double.parse(value!),
+                          onSaved: (value) => _weight = _isBodyweight
+                              ? null
+                              : double.parse(value!),
                         ),
                       ),
                       IconButton(
