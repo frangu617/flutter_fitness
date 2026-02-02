@@ -21,20 +21,20 @@ class CardioWorkout extends Workout {
   final int? time; // in minutes
 
   CardioWorkout({
-    required String id,
-    required String name,
+    required super.id,
+    required super.name,
     this.distance,
     this.time,
-  }) : super(id: id, name: name, type: WorkoutType.cardio);
+  }) : super(type: WorkoutType.cardio);
 }
 
 class StrengthWorkout extends Workout {
   final List<WorkoutSet> sets;
 
   StrengthWorkout({
-    required String id,
-    required String name,
+    required super.id,
+    required super.name,
     List<WorkoutSet>? sets,
   }) : sets = sets ?? [],
-       super(id: id, name: name, type: WorkoutType.strength);
+       super(type: WorkoutType.strength);
 }

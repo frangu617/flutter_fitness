@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
-import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'package:flutter_fitness/models/workout.dart';
 
 class WorkoutDatabase {
   WorkoutDatabase._();
 
   static final WorkoutDatabase instance = WorkoutDatabase._();
+  static bool _factoryInitialized = false;
 
   Database? _database;
 
@@ -19,9 +22,24 @@ class WorkoutDatabase {
   }
 
   Future<Database> _openDatabase() async {
+    _ensureDatabaseFactory();
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'workout_log.db');
     return openDatabase(path, version: 1, onCreate: _onCreate);
+  }
+
+  void _ensureDatabaseFactory() {
+    if (_factoryInitialized) {
+      return;
+    }
+    if (kIsWeb) {
+      databaseFactory = databaseFactoryFfiWebNoWebWorker;
+    } else if (defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux) {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    }
+    _factoryInitialized = true;
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -202,5 +220,53 @@ class WorkoutDatabase {
       whereArgs: [startKey, endKey],
     );
     return rows.map((row) => row['date_key'] as String).toSet();
+  }
+
+  Future<Map<String, int>> fetchWorkoutCountsForMonth({
+    required int year,
+    required int month,
+  }) async {
+    final db = await database;
+    final daysInMonth = DateUtils.getDaysInMonth(year, month);
+    final startKey = _dateKey(DateTime(year, month, 1));
+    final endKey = _dateKey(DateTime(year, month, daysInMonth));
+    final rows = await db.rawQuery(
+      'SELECT date_key, COUNT(*) AS count '
+      'FROM workouts '
+      'WHERE date_key >= ? AND date_key <= ? '
+      'GROUP BY date_key',
+      [startKey, endKey],
+    );
+    final counts = <String, int>{};
+    for (final row in rows) {
+      final key = row['date_key'] as String;
+      final countValue = row['count'] as int? ?? 0;
+      counts[key] = countValue;
+    }
+    return counts;
+  }
+
+  Future<Set<String>> fetchAllWorkoutDateKeys() async {
+    final db = await database;
+    final rows = await db.query(
+      'workouts',
+      columns: ['date_key'],
+      distinct: true,
+    );
+    return rows.map((row) => row['date_key'] as String).toSet();
+  }
+
+  Future<double> fetchTotalWeightLifted() async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT SUM(reps * weight) AS total '
+      'FROM workout_sets '
+      'WHERE is_bodyweight = 0 AND weight IS NOT NULL',
+    );
+    final value = rows.first['total'];
+    if (value == null) {
+      return 0;
+    }
+    return (value as num).toDouble();
   }
 }

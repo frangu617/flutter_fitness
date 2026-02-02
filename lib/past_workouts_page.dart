@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:table_calendar/table_calendar.dart';
 import 'package:flutter_fitness/data/workout_database.dart';
 import 'package:flutter_fitness/models/workout.dart';
 
@@ -11,70 +12,18 @@ class PastWorkoutsPage extends StatefulWidget {
 
 class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
   final WorkoutDatabase _db = WorkoutDatabase.instance;
-  late DateTime _focusedMonth;
-  late DateTime _selectedDate;
+  DateTime _focusedDay = DateTime.now();
+  DateTime _selectedDay = DateTime.now();
+  Map<String, int> _workoutCounts = {};
   List<Workout> _selectedWorkouts = [];
-  Set<String> _markedDateKeys = {};
-  bool _isLoadingWorkouts = true;
   bool _isLoadingMarks = true;
-
-  static const List<String> _monthNames = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ];
-
-  static const List<String> _weekdayNames = [
-    'Sun',
-    'Mon',
-    'Tue',
-    'Wed',
-    'Thu',
-    'Fri',
-    'Sat',
-  ];
+  bool _isLoadingWorkouts = true;
 
   @override
   void initState() {
     super.initState();
-    final now = DateTime.now();
-    _focusedMonth = DateTime(now.year, now.month);
-    _selectedDate = DateTime(now.year, now.month, now.day);
     _loadMonthMarks();
     _loadSelectedWorkouts();
-  }
-
-  void _shiftMonth(int offset) {
-    final newMonth = DateTime(_focusedMonth.year, _focusedMonth.month + offset);
-    final daysInMonth = DateUtils.getDaysInMonth(newMonth.year, newMonth.month);
-    final clampedDay = _selectedDate.day.clamp(1, daysInMonth);
-    setState(() {
-      _focusedMonth = DateTime(newMonth.year, newMonth.month);
-      _selectedDate = DateTime(newMonth.year, newMonth.month, clampedDay);
-    });
-    _loadMonthMarks();
-    _loadSelectedWorkouts();
-  }
-
-  bool _isSameDay(DateTime a, DateTime b) {
-    return a.year == b.year && a.month == b.month && a.day == b.day;
-  }
-
-  String _formatMonthYear(DateTime date) {
-    return '${_monthNames[date.month - 1]} ${date.year}';
-  }
-
-  String _formatFullDate(DateTime date) {
-    return '${_monthNames[date.month - 1]} ${date.day}, ${date.year}';
   }
 
   String _dateKey(DateTime date) {
@@ -87,15 +36,15 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
     setState(() {
       _isLoadingMarks = true;
     });
-    final marks = await _db.fetchDateKeysForMonth(
-      year: _focusedMonth.year,
-      month: _focusedMonth.month,
+    final marks = await _db.fetchWorkoutCountsForMonth(
+      year: _focusedDay.year,
+      month: _focusedDay.month,
     );
     if (!mounted) {
       return;
     }
     setState(() {
-      _markedDateKeys = marks;
+      _workoutCounts = marks;
       _isLoadingMarks = false;
     });
   }
@@ -104,7 +53,7 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
     setState(() {
       _isLoadingWorkouts = true;
     });
-    final workouts = await _db.fetchWorkoutsForDate(_selectedDate);
+    final workouts = await _db.fetchWorkoutsForDate(_selectedDay);
     if (!mounted) {
       return;
     }
@@ -114,6 +63,80 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
     });
   }
 
+  int _intensityFor(DateTime day) {
+    final count = _workoutCounts[_dateKey(day)] ?? 0;
+    if (count == 0) {
+      return 0;
+    }
+    if (count == 1) {
+      return 1;
+    }
+    if (count == 2) {
+      return 2;
+    }
+    return 3;
+  }
+
+  Color _heatColor(Color base, int intensity) {
+    if (intensity == 0) {
+      return Colors.transparent;
+    }
+    if (intensity == 1) {
+      return base.withAlpha(46);
+    }
+    if (intensity == 2) {
+      return base.withAlpha(92);
+    }
+    return base.withAlpha(140);
+  }
+
+  Widget _buildDayCell(
+    BuildContext context,
+    DateTime day, {
+    bool isOutside = false,
+    bool isSelected = false,
+    bool isToday = false,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final intensity = _isLoadingMarks ? 0 : _intensityFor(day);
+    Color background = _heatColor(colorScheme.primary, intensity);
+    if (isSelected) {
+      background = colorScheme.primary;
+    }
+    if (isOutside && background != Colors.transparent) {
+      background = background.withAlpha(30);
+    }
+
+    final textColor = isSelected
+        ? colorScheme.onPrimary
+        : isOutside
+            ? colorScheme.onSurfaceVariant
+            : colorScheme.onSurface;
+
+    return Container(
+      margin: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(10),
+        border: isToday
+            ? Border.all(color: colorScheme.secondary, width: 1.4)
+            : null,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        '${day.day}',
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: textColor,
+            ),
+      ),
+    );
+  }
+
+  String _formatFullDate(DateTime date) {
+    return '${date.month}/${date.day}/${date.year}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -121,59 +144,41 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
       appBar: AppBar(title: const Text('Past Workouts')),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                IconButton(
-                  onPressed: () => _shiftMonth(-1),
-                  icon: const Icon(Icons.chevron_left),
-                ),
-                Text(
-                  _formatMonthYear(_focusedMonth),
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                IconButton(
-                  onPressed: () => _shiftMonth(1),
-                  icon: const Icon(Icons.chevron_right),
-                ),
-              ],
+          TableCalendar(
+            focusedDay: _focusedDay,
+            firstDay: DateTime.now().subtract(const Duration(days: 365 * 5)),
+            lastDay: DateTime.now().add(const Duration(days: 365 * 5)),
+            selectedDayPredicate: (day) => isSameDay(day, _selectedDay),
+            onDaySelected: (selectedDay, focusedDay) {
+              setState(() {
+                _selectedDay = selectedDay;
+                _focusedDay = focusedDay;
+              });
+              _loadSelectedWorkouts();
+            },
+            onPageChanged: (focusedDay) {
+              setState(() {
+                _focusedDay = focusedDay;
+              });
+              _loadMonthMarks();
+            },
+            calendarStyle: CalendarStyle(
+              outsideTextStyle:
+                  TextStyle(color: colorScheme.onSurfaceVariant),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: _weekdayNames
-                  .map(
-                    (label) => Expanded(
-                      child: Center(
-                        child: Text(
-                          label,
-                          style: Theme.of(context).textTheme.labelMedium
-                              ?.copyWith(color: colorScheme.onSurfaceVariant),
-                        ),
-                      ),
-                    ),
-                  )
-                  .toList(),
+            headerStyle: const HeaderStyle(
+              titleCentered: true,
+              formatButtonVisible: false,
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: _CalendarGrid(
-              focusedMonth: _focusedMonth,
-              selectedDate: _selectedDate,
-              onDateSelected: (date) {
-                setState(() {
-                  _selectedDate = date;
-                });
-                _loadSelectedWorkouts();
-              },
-              isSameDay: _isSameDay,
-              hasWorkouts: (date) =>
-                  !_isLoadingMarks && _markedDateKeys.contains(_dateKey(date)),
+            calendarBuilders: CalendarBuilders(
+              defaultBuilder: (context, day, focusedDay) =>
+                  _buildDayCell(context, day),
+              outsideBuilder: (context, day, focusedDay) =>
+                  _buildDayCell(context, day, isOutside: true),
+              todayBuilder: (context, day, focusedDay) =>
+                  _buildDayCell(context, day, isToday: true),
+              selectedBuilder: (context, day, focusedDay) =>
+                  _buildDayCell(context, day, isSelected: true),
             ),
           ),
           const Divider(height: 1),
@@ -183,7 +188,7 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  _formatFullDate(_selectedDate),
+                  _formatFullDate(_selectedDay),
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 Text(
@@ -197,123 +202,22 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
             child: _isLoadingWorkouts
                 ? const Center(child: CircularProgressIndicator())
                 : _selectedWorkouts.isEmpty
-                ? const Center(child: Text('No workouts logged for this day.'))
-                : ListView.separated(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _selectedWorkouts.length,
-                    separatorBuilder: (context, index) =>
-                        const SizedBox(height: 12),
-                    itemBuilder: (context, index) {
-                      final workout = _selectedWorkouts[index];
-                      return _WorkoutLogCard(workout: workout);
-                    },
-                  ),
+                    ? const Center(
+                        child: Text('No workouts logged for this day.'),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _selectedWorkouts.length,
+                        separatorBuilder: (context, index) =>
+                            const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final workout = _selectedWorkouts[index];
+                          return _WorkoutLogCard(workout: workout);
+                        },
+                      ),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _CalendarGrid extends StatelessWidget {
-  final DateTime focusedMonth;
-  final DateTime selectedDate;
-  final ValueChanged<DateTime> onDateSelected;
-  final bool Function(DateTime a, DateTime b) isSameDay;
-  final bool Function(DateTime date) hasWorkouts;
-
-  const _CalendarGrid({
-    required this.focusedMonth,
-    required this.selectedDate,
-    required this.onDateSelected,
-    required this.isSameDay,
-    required this.hasWorkouts,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final firstDayOfMonth = DateTime(focusedMonth.year, focusedMonth.month, 1);
-    final daysInMonth = DateUtils.getDaysInMonth(
-      focusedMonth.year,
-      focusedMonth.month,
-    );
-    final startingWeekday = firstDayOfMonth.weekday % 7;
-    final totalCells = ((startingWeekday + daysInMonth + 6) ~/ 7) * 7;
-    final today = DateTime.now();
-
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: totalCells,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 7,
-        mainAxisSpacing: 6,
-        crossAxisSpacing: 6,
-        childAspectRatio: 1.1,
-      ),
-      itemBuilder: (context, index) {
-        final dayIndex = index - startingWeekday;
-        if (dayIndex < 0 || dayIndex >= daysInMonth) {
-          return const SizedBox.shrink();
-        }
-        final date = DateTime(
-          focusedMonth.year,
-          focusedMonth.month,
-          dayIndex + 1,
-        );
-        final isSelected = isSameDay(date, selectedDate);
-        final isToday = isSameDay(date, today);
-        final marked = hasWorkouts(date);
-        final backgroundColor = isSelected
-            ? colorScheme.primary
-            : Colors.transparent;
-        final textColor = isSelected
-            ? colorScheme.onPrimary
-            : colorScheme.onSurface;
-        final indicatorColor = isSelected
-            ? colorScheme.onPrimary
-            : colorScheme.secondary;
-
-        return Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => onDateSelected(date),
-            child: Container(
-              decoration: BoxDecoration(
-                color: backgroundColor,
-                borderRadius: BorderRadius.circular(12),
-                border: isToday
-                    ? Border.all(color: colorScheme.secondary, width: 1.5)
-                    : null,
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    '${dayIndex + 1}',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: textColor,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  if (marked)
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: indicatorColor,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 }
@@ -368,8 +272,8 @@ class _StrengthWorkoutLogCard extends StatelessWidget {
                 final weightLabel = set.isBodyweight
                     ? 'Body weight'
                     : (set.weight == null
-                          ? 'Weight not logged'
-                          : '${set.weight} lbs');
+                        ? 'Weight not logged'
+                        : '${set.weight} lbs');
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text('Set $setIndex: ${set.reps} reps - $weightLabel'),
