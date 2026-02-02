@@ -25,7 +25,12 @@ class WorkoutDatabase {
     _ensureDatabaseFactory();
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'workout_log.db');
-    return openDatabase(path, version: 1, onCreate: _onCreate);
+    return openDatabase(
+      path,
+      version: 3,
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
+    );
   }
 
   void _ensureDatabaseFactory() {
@@ -50,7 +55,14 @@ class WorkoutDatabase {
       'type TEXT NOT NULL, '
       'date_key TEXT NOT NULL, '
       'distance REAL, '
-      'time_minutes INTEGER'
+      'time_minutes INTEGER, '
+      'calories INTEGER'
+      ')',
+    );
+    await db.execute(
+      'CREATE TABLE workout_day_titles ('
+      'date_key TEXT PRIMARY KEY, '
+      'title TEXT NOT NULL'
       ')',
     );
     await db.execute(
@@ -71,6 +83,22 @@ class WorkoutDatabase {
     );
   }
 
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute(
+        'ALTER TABLE workouts ADD COLUMN calories INTEGER',
+      );
+    }
+    if (oldVersion < 3) {
+      await db.execute(
+        'CREATE TABLE workout_day_titles ('
+        'date_key TEXT PRIMARY KEY, '
+        'title TEXT NOT NULL'
+        ')',
+      );
+    }
+  }
+
   String _dateKey(DateTime date) {
     final month = date.month.toString().padLeft(2, '0');
     final day = date.day.toString().padLeft(2, '0');
@@ -89,6 +117,7 @@ class WorkoutDatabase {
       'date_key': _dateKey(date),
       'distance': workout is CardioWorkout ? workout.distance : null,
       'time_minutes': workout is CardioWorkout ? workout.time : null,
+      'calories': workout is CardioWorkout ? workout.calories : null,
     };
     await db.insert(
       'workouts',
@@ -123,6 +152,91 @@ class WorkoutDatabase {
       whereArgs: [workoutId],
     );
     await db.delete('workouts', where: 'id = ?', whereArgs: [workoutId]);
+  }
+
+  Future<void> setDayTitle({
+    required DateTime date,
+    String? title,
+  }) async {
+    final db = await database;
+    final key = _dateKey(date);
+    final trimmed = title?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      await db.delete(
+        'workout_day_titles',
+        where: 'date_key = ?',
+        whereArgs: [key],
+      );
+      return;
+    }
+    await db.insert(
+      'workout_day_titles',
+      <String, Object?>{
+        'date_key': key,
+        'title': trimmed,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<String?> fetchDayTitle(DateTime date) async {
+    final db = await database;
+    final key = _dateKey(date);
+    final rows = await db.query(
+      'workout_day_titles',
+      columns: ['title'],
+      where: 'date_key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+    return rows.first['title'] as String?;
+  }
+
+  Future<Map<String, String>> fetchDayTitlesForMonth({
+    required int year,
+    required int month,
+  }) async {
+    final db = await database;
+    final daysInMonth = DateUtils.getDaysInMonth(year, month);
+    final startKey = _dateKey(DateTime(year, month, 1));
+    final endKey = _dateKey(DateTime(year, month, daysInMonth));
+    final rows = await db.query(
+      'workout_day_titles',
+      columns: ['date_key', 'title'],
+      where: 'date_key >= ? AND date_key <= ?',
+      whereArgs: [startKey, endKey],
+    );
+    final titles = <String, String>{};
+    for (final row in rows) {
+      final key = row['date_key'] as String;
+      final title = row['title'] as String? ?? '';
+      if (title.trim().isNotEmpty) {
+        titles[key] = title;
+      }
+    }
+    return titles;
+  }
+
+  Future<void> updateCardioWorkout({
+    required String workoutId,
+    double? distance,
+    int? time,
+    int? calories,
+  }) async {
+    final db = await database;
+    await db.update(
+      'workouts',
+      <String, Object?>{
+        'distance': distance,
+        'time_minutes': time,
+        'calories': calories,
+      },
+      where: 'id = ?',
+      whereArgs: [workoutId],
+    );
   }
 
   Future<List<Workout>> fetchWorkoutsForDate(DateTime date) async {
@@ -189,6 +303,7 @@ class WorkoutDatabase {
       } else {
         final distanceValue = row['distance'];
         final timeValue = row['time_minutes'];
+        final caloriesValue = row['calories'];
         workouts.add(
           CardioWorkout(
             id: id,
@@ -197,6 +312,9 @@ class WorkoutDatabase {
                 ? null
                 : (distanceValue as num).toDouble(),
             time: timeValue == null ? null : timeValue as int,
+            calories: caloriesValue == null
+                ? null
+                : (caloriesValue as num).toInt(),
           ),
         );
       }

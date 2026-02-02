@@ -19,12 +19,14 @@ abstract class Workout {
 class CardioWorkout extends Workout {
   final double? distance; // in miles or km
   final int? time; // in minutes
+  final int? calories; // calories burned
 
   CardioWorkout({
     required super.id,
     required super.name,
     this.distance,
     this.time,
+    this.calories,
   }) : super(type: WorkoutType.cardio);
 }
 

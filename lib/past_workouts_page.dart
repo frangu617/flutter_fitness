@@ -15,6 +15,8 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
   Map<String, int> _workoutCounts = {};
+  Map<String, String> _dayTitles = {};
+  String? _selectedTitle;
   List<Workout> _selectedWorkouts = [];
   bool _isLoadingMarks = true;
   bool _isLoadingWorkouts = true;
@@ -40,11 +42,16 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
       year: _focusedDay.year,
       month: _focusedDay.month,
     );
+    final titles = await _db.fetchDayTitlesForMonth(
+      year: _focusedDay.year,
+      month: _focusedDay.month,
+    );
     if (!mounted) {
       return;
     }
     setState(() {
       _workoutCounts = marks;
+      _dayTitles = titles;
       _isLoadingMarks = false;
     });
   }
@@ -54,11 +61,13 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
       _isLoadingWorkouts = true;
     });
     final workouts = await _db.fetchWorkoutsForDate(_selectedDay);
+    final title = await _db.fetchDayTitle(_selectedDay);
     if (!mounted) {
       return;
     }
     setState(() {
       _selectedWorkouts = workouts;
+      _selectedTitle = title;
       _isLoadingWorkouts = false;
     });
   }
@@ -90,6 +99,21 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
     return base.withAlpha(140);
   }
 
+  String? _shortTitleFor(DateTime day) {
+    final title = _dayTitles[_dateKey(day)];
+    if (title == null) {
+      return null;
+    }
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    if (trimmed.length <= 10) {
+      return trimmed;
+    }
+    return '${trimmed.substring(0, 10)}…';
+  }
+
   Widget _buildDayCell(
     BuildContext context,
     DateTime day, {
@@ -112,6 +136,7 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
         : isOutside
             ? colorScheme.onSurfaceVariant
             : colorScheme.onSurface;
+    final shortTitle = _isLoadingMarks ? null : _shortTitleFor(day);
 
     return Container(
       margin: const EdgeInsets.all(4),
@@ -123,12 +148,27 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
             : null,
       ),
       alignment: Alignment.center,
-      child: Text(
-        '${day.day}',
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: textColor,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${day.day}',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: textColor,
+                ),
+          ),
+          if (shortTitle != null)
+            Text(
+              shortTitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: textColor.withAlpha(200),
+                    fontSize: 8,
+                  ),
             ),
+        ],
       ),
     );
   }
@@ -198,6 +238,17 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
               ],
             ),
           ),
+          if (_selectedTitle != null && _selectedTitle!.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _selectedTitle!,
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+              ),
+            ),
           Expanded(
             child: _isLoadingWorkouts
                 ? const Center(child: CircularProgressIndicator())
@@ -299,6 +350,9 @@ class _CardioWorkoutLogCard extends StatelessWidget {
     }
     if (workout.time != null) {
       details.add('${workout.time} minutes');
+    }
+    if (workout.calories != null) {
+      details.add('${workout.calories} cal');
     }
 
     return Card(

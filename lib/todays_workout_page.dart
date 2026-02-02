@@ -18,6 +18,8 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
   List<Workout> _workouts = [];
   bool _isLoading = true;
   final Set<String> _completedWorkouts = {};
+  final TextEditingController _titleController = TextEditingController();
+  String? _dayTitle;
 
   String _dateKey(DateTime date) {
     final month = date.month.toString().padLeft(2, '0');
@@ -42,6 +44,7 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
       _workouts = workouts;
       _isLoading = false;
     });
+    await _loadDayTitle();
     await _loadCompletionState();
     if (widget.autoOpenAdd) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -65,6 +68,31 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
       _completedWorkouts
         ..clear()
         ..addAll(filtered);
+    });
+  }
+
+  Future<void> _loadDayTitle() async {
+    final title = await _db.fetchDayTitle(_todayDate);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _dayTitle = title;
+      _titleController.text = title ?? '';
+    });
+  }
+
+  Future<void> _saveDayTitle() async {
+    final title = _titleController.text.trim();
+    await _db.setDayTitle(
+      date: _todayDate,
+      title: title.isEmpty ? null : title,
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _dayTitle = title.isEmpty ? null : title;
     });
   }
 
@@ -119,71 +147,142 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
   }
 
   @override
+  void dispose() {
+    _titleController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Today's Workout")),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _workouts.isEmpty
-          ? const Center(child: Text('No workouts logged yet.'))
-          : ReorderableListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-              buildDefaultDragHandles: false,
-              itemCount: _workouts.length,
-              onReorder: (oldIndex, newIndex) {
-                setState(() {
-                  if (newIndex > oldIndex) {
-                    newIndex -= 1;
-                  }
-                  final item = _workouts.removeAt(oldIndex);
-                  _workouts.insert(newIndex, item);
-                });
-              },
-              itemBuilder: (context, index) {
-                final workout = _workouts[index];
-                final isCompleted = _completedWorkouts.contains(workout.id);
-                final dragHandle = ReorderableDragStartListener(
-                  index: index,
-                  child: const Icon(Icons.drag_handle),
-                );
-                if (workout is StrengthWorkout) {
-                  return _StrengthWorkoutListItem(
-                    key: ValueKey(workout.id),
-                    workout: workout,
-                    isCompleted: isCompleted,
-                    dragHandle: dragHandle,
-                    onCompletedChanged: (value) =>
-                        _toggleCompleted(workout.id, value),
-                    onDelete: () => _deleteWorkout(workout.id),
-                    onAddSet: (reps, weight, isBodyweight) async {
-                      final newSet = WorkoutSet(
-                        reps: reps,
-                        weight: weight,
-                        isBodyweight: isBodyweight,
-                      );
-                      await _db.insertSet(workoutId: workout.id, set: newSet);
-                      if (!mounted) {
-                        return;
-                      }
-                      setState(() {
-                        workout.sets.add(newSet);
-                      });
-                    },
-                  );
-                }
-                if (workout is CardioWorkout) {
-                  return _CardioWorkoutListItem(
-                    key: ValueKey(workout.id),
-                    workout: workout,
-                    isCompleted: isCompleted,
-                    dragHandle: dragHandle,
-                    onCompletedChanged: (value) =>
-                        _toggleCompleted(workout.id, value),
-                    onDelete: () => _deleteWorkout(workout.id),
-                  );
-                }
-                return const SizedBox.shrink();
-              },
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: TextFormField(
+                    controller: _titleController,
+                    decoration: InputDecoration(
+                      labelText: 'Workout title (optional)',
+                      hintText: 'Leg Day, Chest Day, Back Day...',
+                      prefixIcon: const Icon(Icons.edit),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.save),
+                        tooltip: 'Save title',
+                        onPressed: _saveDayTitle,
+                      ),
+                    ),
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _saveDayTitle(),
+                  ),
+                ),
+                if (_dayTitle != null) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        _dayTitle!,
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
+                    ),
+                  ),
+                ],
+                Expanded(
+                  child: _workouts.isEmpty
+                      ? const Center(child: Text('No workouts logged yet.'))
+                      : ReorderableListView.builder(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                          buildDefaultDragHandles: false,
+                          itemCount: _workouts.length,
+                          onReorder: (oldIndex, newIndex) {
+                            setState(() {
+                              if (newIndex > oldIndex) {
+                                newIndex -= 1;
+                              }
+                              final item = _workouts.removeAt(oldIndex);
+                              _workouts.insert(newIndex, item);
+                            });
+                          },
+                          itemBuilder: (context, index) {
+                            final workout = _workouts[index];
+                            final isCompleted =
+                                _completedWorkouts.contains(workout.id);
+                            final dragHandle = ReorderableDragStartListener(
+                              index: index,
+                              child: const Icon(Icons.drag_handle),
+                            );
+                            if (workout is StrengthWorkout) {
+                              return _StrengthWorkoutListItem(
+                                key: ValueKey(workout.id),
+                                workout: workout,
+                                isCompleted: isCompleted,
+                                dragHandle: dragHandle,
+                                onCompletedChanged: (value) =>
+                                    _toggleCompleted(workout.id, value),
+                                onDelete: () => _deleteWorkout(workout.id),
+                                onAddSet: (reps, weight, isBodyweight) async {
+                                  final newSet = WorkoutSet(
+                                    reps: reps,
+                                    weight: weight,
+                                    isBodyweight: isBodyweight,
+                                  );
+                                  await _db.insertSet(
+                                    workoutId: workout.id,
+                                    set: newSet,
+                                  );
+                                  if (!mounted) {
+                                    return;
+                                  }
+                                  setState(() {
+                                    workout.sets.add(newSet);
+                                  });
+                                },
+                              );
+                            }
+                            if (workout is CardioWorkout) {
+                              return _CardioWorkoutListItem(
+                                key: ValueKey(workout.id),
+                                workout: workout,
+                                isCompleted: isCompleted,
+                                dragHandle: dragHandle,
+                                onCompletedChanged: (value) =>
+                                    _toggleCompleted(workout.id, value),
+                                onDelete: () => _deleteWorkout(workout.id),
+                                onSave: (distance, time, calories) async {
+                                  await _db.updateCardioWorkout(
+                                    workoutId: workout.id,
+                                    distance: distance,
+                                    time: time,
+                                    calories: calories,
+                                  );
+                                  if (!mounted) {
+                                    return;
+                                  }
+                                  setState(() {
+                                    final index = _workouts.indexWhere(
+                                      (item) => item.id == workout.id,
+                                    );
+                                    if (index != -1) {
+                                      _workouts[index] = CardioWorkout(
+                                        id: workout.id,
+                                        name: workout.name,
+                                        distance: distance,
+                                        time: time,
+                                        calories: calories,
+                                      );
+                                    }
+                                  });
+                                },
+                              );
+                            }
+                            return const SizedBox.shrink();
+                          },
+                        ),
+                ),
+              ],
             ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddWorkoutDialog,
@@ -205,8 +304,6 @@ class _AddWorkoutFormState extends State<_AddWorkoutForm> {
   final _formKey = GlobalKey<FormState>();
   String _name = '';
   WorkoutType _type = WorkoutType.cardio;
-  double? _distance;
-  int? _time;
 
   @override
   Widget build(BuildContext context) {
@@ -228,46 +325,38 @@ class _AddWorkoutFormState extends State<_AddWorkoutForm> {
                 },
                 onSaved: (value) => _name = value!,
               ),
-              DropdownButtonFormField<WorkoutType>(
-                initialValue: _type,
-                decoration: const InputDecoration(labelText: 'Workout Type'),
-                items: WorkoutType.values
-                    .map(
-                      (type) => DropdownMenuItem(
-                        value: type,
-                        child: Text(
-                          type.toString().split('.').last[0].toUpperCase() +
-                              type.toString().split('.').last.substring(1),
-                        ),
-                      ),
-                    )
-                    .toList(),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Workout Type',
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Cardio'),
+                value: _type == WorkoutType.cardio,
                 onChanged: (value) {
-                  if (value != null) {
+                  if (value ?? false) {
                     setState(() {
-                      _type = value;
+                      _type = WorkoutType.cardio;
                     });
                   }
                 },
               ),
-              if (_type == WorkoutType.cardio) ...[
-                TextFormField(
-                  key: const Key('distance_field'),
-                  decoration: const InputDecoration(
-                    labelText: 'Distance (miles)',
-                  ),
-                  keyboardType: TextInputType.number,
-                  onSaved: (value) => _distance = double.tryParse(value ?? ''),
-                ),
-                TextFormField(
-                  key: const Key('time_field'),
-                  decoration: const InputDecoration(
-                    labelText: 'Time (minutes)',
-                  ),
-                  keyboardType: TextInputType.number,
-                  onSaved: (value) => _time = int.tryParse(value ?? ''),
-                ),
-              ],
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Strength'),
+                value: _type == WorkoutType.strength,
+                onChanged: (value) {
+                  if (value ?? false) {
+                    setState(() {
+                      _type = WorkoutType.strength;
+                    });
+                  }
+                },
+              ),
             ],
           ),
         ),
@@ -287,8 +376,6 @@ class _AddWorkoutFormState extends State<_AddWorkoutForm> {
                 newWorkout = CardioWorkout(
                   id: id,
                   name: _name,
-                  distance: _distance,
-                  time: _time,
                 );
               } else {
                 newWorkout = StrengthWorkout(id: id, name: _name);
@@ -463,12 +550,13 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
   }
 }
 
-class _CardioWorkoutListItem extends StatelessWidget {
+class _CardioWorkoutListItem extends StatefulWidget {
   final CardioWorkout workout;
   final VoidCallback onDelete;
   final bool isCompleted;
   final ValueChanged<bool> onCompletedChanged;
   final Widget dragHandle;
+  final void Function(double? distance, int? time, int? calories) onSave;
 
   const _CardioWorkoutListItem({
     required this.workout,
@@ -476,24 +564,91 @@ class _CardioWorkoutListItem extends StatelessWidget {
     required this.isCompleted,
     required this.onCompletedChanged,
     required this.dragHandle,
+    required this.onSave,
     super.key,
   });
 
   @override
+  State<_CardioWorkoutListItem> createState() => _CardioWorkoutListItemState();
+}
+
+class _CardioWorkoutListItemState extends State<_CardioWorkoutListItem> {
+  final _formKey = GlobalKey<FormState>();
+  late TextEditingController _distanceController;
+  late TextEditingController _durationController;
+  late TextEditingController _caloriesController;
+
+  @override
+  void initState() {
+    super.initState();
+    _distanceController = TextEditingController(
+      text: widget.workout.distance?.toString() ?? '',
+    );
+    _durationController = TextEditingController(
+      text: widget.workout.time?.toString() ?? '',
+    );
+    _caloriesController = TextEditingController(
+      text: widget.workout.calories?.toString() ?? '',
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _CardioWorkoutListItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.workout.distance != widget.workout.distance) {
+      _distanceController.text = widget.workout.distance?.toString() ?? '';
+    }
+    if (oldWidget.workout.time != widget.workout.time) {
+      _durationController.text = widget.workout.time?.toString() ?? '';
+    }
+    if (oldWidget.workout.calories != widget.workout.calories) {
+      _caloriesController.text = widget.workout.calories?.toString() ?? '';
+    }
+  }
+
+  @override
+  void dispose() {
+    _distanceController.dispose();
+    _durationController.dispose();
+    _caloriesController.dispose();
+    super.dispose();
+  }
+
+  String? _validateDouble(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    return double.tryParse(value.trim()) == null ? 'Enter a number' : null;
+  }
+
+  String? _validateInt(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    return int.tryParse(value.trim()) == null ? 'Enter a whole number' : null;
+  }
+
+  void _saveDetails() {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    final distanceText = _distanceController.text.trim();
+    final durationText = _durationController.text.trim();
+    final caloriesText = _caloriesController.text.trim();
+    final distance =
+        distanceText.isEmpty ? null : double.tryParse(distanceText);
+    final duration = durationText.isEmpty ? null : int.tryParse(durationText);
+    final calories = caloriesText.isEmpty ? null : int.tryParse(caloriesText);
+    widget.onSave(distance, duration, calories);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final cardColor = isCompleted
+    final cardColor = widget.isCompleted
         ? colorScheme.primary.withAlpha(46)
         : colorScheme.surface;
-    final contentOpacity = isCompleted ? 0.6 : 1.0;
-
-    final details = <String>[];
-    if (workout.distance != null) {
-      details.add('Distance: ${workout.distance} miles');
-    }
-    if (workout.time != null) {
-      details.add('Time: ${workout.time} minutes');
-    }
+    final contentOpacity = widget.isCompleted ? 0.6 : 1.0;
 
     return Card(
       elevation: 0,
@@ -508,19 +663,20 @@ class _CardioWorkoutListItem extends StatelessWidget {
               Row(
                 children: [
                   Checkbox(
-                    value: isCompleted,
-                    onChanged: (value) => onCompletedChanged(value ?? false),
+                    value: widget.isCompleted,
+                    onChanged: (value) =>
+                        widget.onCompletedChanged(value ?? false),
                   ),
                   Expanded(
                     child: Text(
-                      workout.name,
+                      widget.workout.name,
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
-                  dragHandle,
+                  widget.dragHandle,
                   IconButton(
                     icon: const Icon(Icons.delete),
-                    onPressed: onDelete,
+                    onPressed: widget.onDelete,
                   ),
                 ],
               ),
@@ -529,10 +685,56 @@ class _CardioWorkoutListItem extends StatelessWidget {
                 'Type: Cardio',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
-              if (details.isNotEmpty) ...[
-                const SizedBox(height: 8.0),
-                ...details.map((detail) => Text(detail)),
-              ],
+              const SizedBox(height: 8.0),
+              Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _distanceController,
+                            decoration: const InputDecoration(
+                              labelText: 'Distance (miles)',
+                            ),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            validator: _validateDouble,
+                          ),
+                        ),
+                        const SizedBox(width: 8.0),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _durationController,
+                            decoration: const InputDecoration(
+                              labelText: 'Duration (min)',
+                            ),
+                            keyboardType: TextInputType.number,
+                            validator: _validateInt,
+                          ),
+                        ),
+                        IconButton(
+                          key: const Key('save_cardio_button'),
+                          icon: const Icon(Icons.save),
+                          tooltip: 'Save cardio details',
+                          onPressed: _saveDetails,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8.0),
+                    TextFormField(
+                      controller: _caloriesController,
+                      decoration: const InputDecoration(
+                        labelText: 'Calories burned (optional)',
+                      ),
+                      keyboardType: TextInputType.number,
+                      validator: _validateInt,
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),

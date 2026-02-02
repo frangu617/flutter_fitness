@@ -57,6 +57,7 @@ class _MyHomePageState extends State<MyHomePage> {
   int _plannedToday = 1;
   String _greeting = 'Good Morning';
   String? _name;
+  String? _todayTitle;
   bool _isLoading = true;
 
   String _dateKey(DateTime date) {
@@ -75,6 +76,7 @@ class _MyHomePageState extends State<MyHomePage> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final workouts = await _db.fetchWorkoutsForDate(today);
+    final dayTitle = await _db.fetchDayTitle(today);
     final prefs = await SharedPreferences.getInstance();
     final name = prefs.getString('profile_name');
     final completedKey = 'completed_workouts_${_dateKey(today)}';
@@ -94,6 +96,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _plannedToday = plannedToday;
       _greeting = greeting;
       _name = name == null || name.trim().isEmpty ? null : name.trim();
+      _todayTitle = dayTitle;
       _isLoading = false;
     });
   }
@@ -261,6 +264,21 @@ class _MyHomePageState extends State<MyHomePage> {
                                   : 'Workouts completed today',
                               style: Theme.of(context).textTheme.bodyMedium,
                             ),
+                            if (!_isLoading &&
+                                _todayTitle != null &&
+                                _todayTitle!.trim().isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                _todayTitle!,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium
+                                    ?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                            ],
                             const SizedBox(height: 8),
                             Text(
                               _isLoading
