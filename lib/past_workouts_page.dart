@@ -297,24 +297,41 @@ class _StrengthWorkoutLogCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardColor =
+        isDark ? const Color(0xFF0B3D91) : Colors.blue.shade400;
+    final textColor = Colors.yellowAccent.shade400;
     return Card(
       elevation: 0,
+      color: cardColor,
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(workout.name, style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              workout.name,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(color: textColor),
+            ),
             const SizedBox(height: 4),
             Text(
               'Type: Strength',
-              style: Theme.of(context).textTheme.labelMedium,
+              style: Theme.of(context)
+                  .textTheme
+                  .labelMedium
+                  ?.copyWith(color: textColor),
             ),
             const SizedBox(height: 8),
             if (workout.sets.isEmpty)
               Text(
                 'No sets logged yet.',
-                style: Theme.of(context).textTheme.bodySmall,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: textColor),
               )
             else
               ...workout.sets.asMap().entries.map((entry) {
@@ -327,7 +344,13 @@ class _StrengthWorkoutLogCard extends StatelessWidget {
                         : '${set.weight} lbs');
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 4),
-                  child: Text('Set $setIndex: ${set.reps} reps - $weightLabel'),
+                  child: Text(
+                    'Set $setIndex: ${set.reps} reps - $weightLabel',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: textColor),
+                  ),
                 );
               }),
           ],
@@ -355,9 +378,16 @@ class _CardioWorkoutLogCard extends StatelessWidget {
       details.add('${workout.calories} cal');
     }
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardColor =
+        isDark ? const Color(0xFF0B3D91) : Colors.blue.shade400;
+    final textColor = Colors.yellowAccent.shade400;
     return Card(
       elevation: 0,
+      color: cardColor,
       child: ListTile(
+        textColor: textColor,
+        iconColor: textColor,
         title: Text(workout.name),
         subtitle: Text(
           details.isEmpty

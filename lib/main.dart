@@ -129,6 +129,20 @@ class _MyHomePageState extends State<MyHomePage> {
     _loadDashboard();
   }
 
+  bool _textFits(
+    String text,
+    TextStyle style,
+    double maxWidth,
+    TextDirection textDirection,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      maxLines: 1,
+      textDirection: textDirection,
+    )..layout(maxWidth: maxWidth);
+    return !painter.didExceedMaxLines;
+  }
+
   Widget _buildHeader(ColorScheme colorScheme) {
     return Row(
       children: [
@@ -138,22 +152,57 @@ class _MyHomePageState extends State<MyHomePage> {
           height: 44,
         ),
         const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _name == null ? _greeting : '$_greeting, $_name',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final greetingStyle = Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w700) ??
+                  const TextStyle(fontSize: 20, fontWeight: FontWeight.w700);
+              final subtitleStyle = Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: colorScheme.onSurfaceVariant) ??
+                  TextStyle(color: colorScheme.onSurfaceVariant);
+              final textDirection = Directionality.of(context);
+              String greetingText = _greeting;
+              String secondaryText = widget.title;
+
+              if (_name != null) {
+                final inlineGreeting = '$_greeting, $_name';
+                final fits = _textFits(
+                  inlineGreeting,
+                  greetingStyle,
+                  constraints.maxWidth,
+                  textDirection,
+                );
+                if (fits) {
+                  greetingText = inlineGreeting;
+                } else {
+                  secondaryText = _name!;
+                }
+              }
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    greetingText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: greetingStyle,
                   ),
-            ),
-            Text(
-              widget.title,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
+                  Text(
+                    secondaryText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: subtitleStyle,
                   ),
-            ),
-          ],
+                ],
+              );
+            },
+          ),
         ),
       ],
     );

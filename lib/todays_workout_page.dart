@@ -18,6 +18,7 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
   List<Workout> _workouts = [];
   bool _isLoading = true;
   final Set<String> _completedWorkouts = {};
+  final ScrollController _workoutsScrollController = ScrollController();
   final TextEditingController _titleController = TextEditingController();
   String? _dayTitle;
 
@@ -111,6 +112,7 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
       _workouts = [..._workouts, workout];
     });
     await _saveCompletionState();
+    _scrollToLatestWorkout();
   }
 
   Future<void> _deleteWorkout(String id) async {
@@ -131,7 +133,7 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
       builder: (context) => const _AddWorkoutForm(),
     );
     if (newWorkout != null) {
-      _addWorkout(newWorkout);
+      await _addWorkout(newWorkout);
     }
   }
 
@@ -146,14 +148,36 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
     _saveCompletionState();
   }
 
+  void _scrollToLatestWorkout() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_workoutsScrollController.hasClients) {
+        return;
+      }
+      final position = _workoutsScrollController.position;
+      if (position.maxScrollExtent <= 0) {
+        return;
+      }
+      _workoutsScrollController.animateTo(
+        position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
   @override
   void dispose() {
     _titleController.dispose();
+    _workoutsScrollController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final bottomSafeArea = MediaQuery.of(context).viewPadding.bottom;
+    const fabSize = 56.0;
+    final listBottomPadding =
+        bottomSafeArea + kFloatingActionButtonMargin + fabSize + 24;
     return Scaffold(
       appBar: AppBar(title: const Text("Today's Workout")),
       body: _isLoading
@@ -194,7 +218,13 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
                   child: _workouts.isEmpty
                       ? const Center(child: Text('No workouts logged yet.'))
                       : ReorderableListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                          scrollController: _workoutsScrollController,
+                          padding: EdgeInsets.fromLTRB(
+                            16,
+                            12,
+                            16,
+                            listBottomPadding,
+                          ),
                           buildDefaultDragHandles: false,
                           itemCount: _workouts.length,
                           onReorder: (oldIndex, newIndex) {
@@ -316,6 +346,7 @@ class _AddWorkoutFormState extends State<_AddWorkoutForm> {
             mainAxisSize: MainAxisSize.min,
             children: [
               TextFormField(
+                textCapitalization: TextCapitalization.words,
                 decoration: const InputDecoration(labelText: 'Workout Name'),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
@@ -421,10 +452,14 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final cardColor = widget.isCompleted
-        ? colorScheme.primary.withAlpha(46)
-        : colorScheme.surface;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final baseCardColor =
+        isDark ? const Color(0xFF0B3D91) : Colors.blue.shade400;
+    final completedCardColor =
+        isDark ? const Color(0xFF0A337A) : Colors.blue.shade500;
+    final cardColor =
+        widget.isCompleted ? completedCardColor : baseCardColor;
+    final textColor = Colors.yellowAccent.shade400;
     final contentOpacity = widget.isCompleted ? 0.6 : 1.0;
 
     return Card(
@@ -447,7 +482,10 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
                   Expanded(
                     child: Text(
                       widget.workout.name,
-                      style: Theme.of(context).textTheme.titleLarge,
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleLarge
+                          ?.copyWith(color: textColor),
                     ),
                   ),
                   widget.dragHandle,
@@ -460,14 +498,23 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
               const SizedBox(height: 4.0),
               Text(
                 'Type: Strength',
-                style: Theme.of(context).textTheme.titleMedium,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(color: textColor),
               ),
               const SizedBox(height: 8.0),
               ...widget.workout.sets.map((set) {
-                if (set.isBodyweight) {
-                  return Text('Reps: ${set.reps}, Weight: Body weight');
-                }
-                return Text('Reps: ${set.reps}, Weight: ${set.weight} lbs');
+                final label = set.isBodyweight
+                    ? 'Reps: ${set.reps}, Weight: Body weight'
+                    : 'Reps: ${set.reps}, Weight: ${set.weight} lbs';
+                return Text(
+                  label,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: textColor),
+                );
               }),
               const SizedBox(height: 8.0),
               Form(
@@ -478,9 +525,13 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
                       children: [
                         Expanded(
                           child: TextFormField(
-                            decoration:
-                                const InputDecoration(labelText: 'Reps'),
+                            decoration: InputDecoration(
+                              labelText: 'Reps',
+                              labelStyle: TextStyle(color: textColor),
+                              floatingLabelStyle: TextStyle(color: textColor),
+                            ),
                             keyboardType: TextInputType.number,
+                            style: TextStyle(color: textColor),
                             validator: (value) {
                               if (value == null || value.isEmpty) {
                                 return 'Enter reps';
@@ -493,11 +544,14 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
                         const SizedBox(width: 8.0),
                         Expanded(
                           child: TextFormField(
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               labelText: 'Weight (lbs)',
+                              labelStyle: TextStyle(color: textColor),
+                              floatingLabelStyle: TextStyle(color: textColor),
                             ),
                             keyboardType: TextInputType.number,
                             enabled: !_isBodyweight,
+                            style: TextStyle(color: textColor),
                             validator: (value) {
                               if (!_isBodyweight &&
                                   (value == null || value.isEmpty)) {
@@ -531,7 +585,10 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
                       ],
                     ),
                     CheckboxListTile(
-                      title: const Text('Body weight'),
+                      title: Text(
+                        'Body weight',
+                        style: TextStyle(color: textColor),
+                      ),
                       value: _isBodyweight,
                       onChanged: (value) {
                         setState(() {
@@ -644,10 +701,14 @@ class _CardioWorkoutListItemState extends State<_CardioWorkoutListItem> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final cardColor = widget.isCompleted
-        ? colorScheme.primary.withAlpha(46)
-        : colorScheme.surface;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final baseCardColor =
+        isDark ? const Color(0xFF0B3D91) : Colors.blue.shade400;
+    final completedCardColor =
+        isDark ? const Color(0xFF0A337A) : Colors.blue.shade500;
+    final cardColor =
+        widget.isCompleted ? completedCardColor : baseCardColor;
+    final textColor = Colors.yellowAccent.shade400;
     final contentOpacity = widget.isCompleted ? 0.6 : 1.0;
 
     return Card(
@@ -670,7 +731,10 @@ class _CardioWorkoutListItemState extends State<_CardioWorkoutListItem> {
                   Expanded(
                     child: Text(
                       widget.workout.name,
-                      style: Theme.of(context).textTheme.titleLarge,
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleLarge
+                          ?.copyWith(color: textColor),
                     ),
                   ),
                   widget.dragHandle,
@@ -683,7 +747,10 @@ class _CardioWorkoutListItemState extends State<_CardioWorkoutListItem> {
               const SizedBox(height: 4.0),
               Text(
                 'Type: Cardio',
-                style: Theme.of(context).textTheme.titleMedium,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(color: textColor),
               ),
               const SizedBox(height: 8.0),
               Form(
@@ -695,12 +762,15 @@ class _CardioWorkoutListItemState extends State<_CardioWorkoutListItem> {
                         Expanded(
                           child: TextFormField(
                             controller: _distanceController,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               labelText: 'Distance (miles)',
+                              labelStyle: TextStyle(color: textColor),
+                              floatingLabelStyle: TextStyle(color: textColor),
                             ),
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
+                            style: TextStyle(color: textColor),
                             validator: _validateDouble,
                           ),
                         ),
@@ -708,10 +778,13 @@ class _CardioWorkoutListItemState extends State<_CardioWorkoutListItem> {
                         Expanded(
                           child: TextFormField(
                             controller: _durationController,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               labelText: 'Duration (min)',
+                              labelStyle: TextStyle(color: textColor),
+                              floatingLabelStyle: TextStyle(color: textColor),
                             ),
                             keyboardType: TextInputType.number,
+                            style: TextStyle(color: textColor),
                             validator: _validateInt,
                           ),
                         ),
@@ -726,10 +799,13 @@ class _CardioWorkoutListItemState extends State<_CardioWorkoutListItem> {
                     const SizedBox(height: 8.0),
                     TextFormField(
                       controller: _caloriesController,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Calories burned (optional)',
+                        labelStyle: TextStyle(color: textColor),
+                        floatingLabelStyle: TextStyle(color: textColor),
                       ),
                       keyboardType: TextInputType.number,
+                      style: TextStyle(color: textColor),
                       validator: _validateInt,
                     ),
                   ],
