@@ -5,6 +5,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_fitness/data/workout_database.dart';
 import 'package:flutter_fitness/models/workout.dart';
+import 'package:flutter_fitness/services/steps_service.dart';
 
 enum WeightUnit { kg, lb }
 enum HeightUnit { cm, ftIn }
@@ -25,6 +26,7 @@ class _WeightEntry {
 
 class _MyDataPageState extends State<MyDataPage> {
   final WorkoutDatabase _db = WorkoutDatabase.instance;
+  final StepsService _stepsService = StepsService();
   final _nameController = TextEditingController();
   final _birthDateController = TextEditingController();
   final _weightController = TextEditingController();
@@ -45,6 +47,8 @@ class _MyDataPageState extends State<MyDataPage> {
 
   bool _isLoading = true;
   bool _isLoadingStats = true;
+  bool _isLoadingSteps = true;
+  bool _stepsAuthorized = true;
   bool _isOnboarding = false;
   int _currentStep = 0;
 
@@ -52,6 +56,7 @@ class _MyDataPageState extends State<MyDataPage> {
   int _currentStreak = 0;
   double _totalWeightLifted = 0;
   List<_WeightEntry> _weightHistory = [];
+  List<StepsDay> _stepsHistory = [];
 
   static const double _lbPerKg = 2.2046226218;
   static const double _cmPerInch = 2.54;
@@ -168,6 +173,7 @@ class _MyDataPageState extends State<MyDataPage> {
       });
     }
     _loadStats();
+    _loadStepsHistory();
   }
 
   Future<void> _loadWeightHistory(SharedPreferences prefs) async {
@@ -400,6 +406,12 @@ class _MyDataPageState extends State<MyDataPage> {
     return rounded.toStringAsFixed(1);
   }
 
+  String _formatSteps(int steps) {
+    return steps
+        .toString()
+        .replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (match) => ',');
+  }
+
   double? _parseDouble(String text) {
     final normalized = text.trim().replaceAll(',', '.');
     if (normalized.isEmpty) {
@@ -414,6 +426,24 @@ class _MyDataPageState extends State<MyDataPage> {
       return null;
     }
     return int.tryParse(normalized);
+  }
+
+  Future<void> _loadStepsHistory() async {
+    setState(() {
+      _isLoadingSteps = true;
+    });
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day)
+        .subtract(const Duration(days: 6));
+    final result = await _stepsService.readStepsForRange(start, now);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _stepsHistory = result.days;
+      _stepsAuthorized = result.authorized;
+      _isLoadingSteps = false;
+    });
   }
 
   int? get _trainingDays => _parseInt(_trainingDaysController.text);
@@ -881,6 +911,46 @@ class _MyDataPageState extends State<MyDataPage> {
     );
   }
 
+  Widget _buildStepsHistory() {
+    if (_isLoadingSteps) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (!_stepsAuthorized) {
+      return Text(
+        'Steps unavailable. Enable Health Connect permissions to see step history.',
+        style: Theme.of(context).textTheme.bodyMedium,
+      );
+    }
+    if (_stepsHistory.isEmpty) {
+      return Text(
+        'No step history yet.',
+        style: Theme.of(context).textTheme.bodyMedium,
+      );
+    }
+
+    final days = _stepsHistory.reversed.toList();
+    return Column(
+      children: days.map((entry) {
+        final dateLabel = '${entry.date.month}/${entry.date.day}';
+        final stepsLabel =
+            entry.steps == null ? '--' : _formatSteps(entry.steps!);
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(dateLabel, style: Theme.of(context).textTheme.bodyMedium),
+              Text(
+                '$stepsLabel steps',
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   Widget _buildCard(String title, Widget child) {
     return Card(
       elevation: 0,
@@ -1020,6 +1090,8 @@ class _MyDataPageState extends State<MyDataPage> {
                 _buildCard('Trends', _buildWeightChart()),
                 const SizedBox(height: 16),
                 _buildCard('Stats', _buildStatsGrid()),
+                const SizedBox(height: 16),
+                _buildCard('Steps (Last 7 days)', _buildStepsHistory()),
                 if (_bmi != null) ...[
                   const SizedBox(height: 16),
                   _buildCard(

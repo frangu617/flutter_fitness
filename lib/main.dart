@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -9,9 +10,13 @@ import 'package:flutter_fitness/todays_workout_page.dart';
 import 'package:flutter_fitness/past_workouts_page.dart';
 import 'package:flutter_fitness/my_data_page.dart';
 import 'package:flutter_fitness/nutrition_page.dart';
+import 'package:flutter_fitness/services/steps_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+  ]);
   if (kIsWeb) {
     databaseFactory = databaseFactoryFfiWebNoWebWorker;
   } else if (defaultTargetPlatform == TargetPlatform.windows ||
@@ -53,8 +58,12 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   final WorkoutDatabase _db = WorkoutDatabase.instance;
+  final StepsService _stepsService = StepsService();
   int _completedToday = 0;
   int _plannedToday = 1;
+  int? _todaySteps;
+  bool _stepsAuthorized = true;
+  bool _isLoadingSteps = true;
   String _greeting = 'Good Morning';
   String? _name;
   String? _todayTitle;
@@ -66,6 +75,12 @@ class _MyHomePageState extends State<MyHomePage> {
     return '${date.year}-$month-$day';
   }
 
+  String _formatSteps(int steps) {
+    return steps
+        .toString()
+        .replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (match) => ',');
+  }
+
   @override
   void initState() {
     super.initState();
@@ -73,6 +88,11 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _loadDashboard() async {
+    if (mounted) {
+      setState(() {
+        _isLoadingSteps = true;
+      });
+    }
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final workouts = await _db.fetchWorkoutsForDate(today);
@@ -87,6 +107,7 @@ class _MyHomePageState extends State<MyHomePage> {
     final plannedToday = workouts.length;
 
     final greeting = _greetingForHour(now.hour);
+    final stepsResult = await _stepsService.readStepsForDay(today);
 
     if (!mounted) {
       return;
@@ -98,6 +119,9 @@ class _MyHomePageState extends State<MyHomePage> {
       _name = name == null || name.trim().isEmpty ? null : name.trim();
       _todayTitle = dayTitle;
       _isLoading = false;
+      _todaySteps = stepsResult.steps;
+      _stepsAuthorized = stepsResult.authorized;
+      _isLoadingSteps = false;
     });
   }
 
@@ -248,6 +272,11 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget _buildTodayCard(ColorScheme colorScheme) {
+    final stepsLabel = _isLoadingSteps
+        ? 'Steps today: ...'
+        : _stepsAuthorized
+            ? 'Steps today: ${_todaySteps == null ? '--' : _formatSteps(_todaySteps!)}'
+            : 'Steps: permission needed';
     return Card(
       elevation: 0,
       clipBehavior: Clip.antiAlias,
@@ -339,6 +368,13 @@ class _MyHomePageState extends State<MyHomePage> {
                             ),
                             const SizedBox(height: 8),
                             Text(
+                              stepsLabel,
+                              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
                               "Tap to view today's list",
                               style:
                                   Theme.of(context).textTheme.labelMedium?.copyWith(
@@ -391,33 +427,37 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget _buildSecondaryGrid(ColorScheme colorScheme) {
-    return GridView.count(
-      crossAxisCount: 2,
+    final cards = [
+      _buildSecondaryCard(
+        title: 'Past Workouts',
+        icon: Icons.calendar_today,
+        colorScheme: colorScheme,
+        onTap: () => _openPage(const PastWorkoutsPage()),
+      ),
+      _buildSecondaryCard(
+        title: 'My Data',
+        icon: Icons.insights,
+        colorScheme: colorScheme,
+        onTap: () => _openPage(const MyDataPage()),
+      ),
+      _buildSecondaryCard(
+        title: 'Nutrition',
+        icon: Icons.restaurant,
+        colorScheme: colorScheme,
+        onTap: () => _openPage(const NutritionPage()),
+      ),
+    ];
+    return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      childAspectRatio: 1.3,
-      children: [
-        _buildSecondaryCard(
-          title: 'Past Workouts',
-          icon: Icons.calendar_today,
-          colorScheme: colorScheme,
-          onTap: () => _openPage(const PastWorkoutsPage()),
-        ),
-        _buildSecondaryCard(
-          title: 'My Data',
-          icon: Icons.insights,
-          colorScheme: colorScheme,
-          onTap: () => _openPage(const MyDataPage()),
-        ),
-        _buildSecondaryCard(
-          title: 'Nutrition',
-          icon: Icons.restaurant,
-          colorScheme: colorScheme,
-          onTap: () => _openPage(const NutritionPage()),
-        ),
-      ],
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 200,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        childAspectRatio: 1.2,
+      ),
+      itemCount: cards.length,
+      itemBuilder: (context, index) => cards[index],
     );
   }
 
@@ -425,17 +465,52 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            _buildHeader(colorScheme),
-            const SizedBox(height: 16),
-            _buildTodayCard(colorScheme),
-            const SizedBox(height: 16),
-            _buildSecondaryGrid(colorScheme),
-          ],
-        ),
+      body: Stack(
+        children: [
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: FractionallySizedBox(
+              heightFactor: 0.5,
+              widthFactor: 1,
+              child: Image.asset(
+                'assets/fitnessLogo.png',
+                fit: BoxFit.cover,
+                alignment: const Alignment(0.6, 0.0),
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: FractionallySizedBox(
+              heightFactor: 0.5,
+              widthFactor: 1,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      colorScheme.surface.withAlpha(210),
+                      colorScheme.surface.withAlpha(150),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          SafeArea(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                _buildHeader(colorScheme),
+                const SizedBox(height: 16),
+                _buildTodayCard(colorScheme),
+                const SizedBox(height: 16),
+                _buildSecondaryGrid(colorScheme),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

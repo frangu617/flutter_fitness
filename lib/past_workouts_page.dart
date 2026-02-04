@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:flutter_fitness/data/workout_database.dart';
 import 'package:flutter_fitness/models/workout.dart';
+import 'package:flutter_fitness/services/steps_service.dart';
 
 class PastWorkoutsPage extends StatefulWidget {
   const PastWorkoutsPage({super.key});
@@ -12,14 +13,18 @@ class PastWorkoutsPage extends StatefulWidget {
 
 class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
   final WorkoutDatabase _db = WorkoutDatabase.instance;
+  final StepsService _stepsService = StepsService();
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
   Map<String, int> _workoutCounts = {};
   Map<String, String> _dayTitles = {};
   String? _selectedTitle;
   List<Workout> _selectedWorkouts = [];
+  int? _selectedSteps;
+  bool _stepsAuthorized = true;
   bool _isLoadingMarks = true;
   bool _isLoadingWorkouts = true;
+  bool _isLoadingSteps = true;
 
   @override
   void initState() {
@@ -59,9 +64,11 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
   Future<void> _loadSelectedWorkouts() async {
     setState(() {
       _isLoadingWorkouts = true;
+      _isLoadingSteps = true;
     });
     final workouts = await _db.fetchWorkoutsForDate(_selectedDay);
     final title = await _db.fetchDayTitle(_selectedDay);
+    final stepsResult = await _stepsService.readStepsForDay(_selectedDay);
     if (!mounted) {
       return;
     }
@@ -69,6 +76,9 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
       _selectedWorkouts = workouts;
       _selectedTitle = title;
       _isLoadingWorkouts = false;
+      _selectedSteps = stepsResult.steps;
+      _stepsAuthorized = stepsResult.authorized;
+      _isLoadingSteps = false;
     });
   }
 
@@ -177,51 +187,94 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
     return '${date.month}/${date.day}/${date.year}';
   }
 
+  String _formatSteps(int steps) {
+    return steps
+        .toString()
+        .replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (match) => ',');
+  }
+
+  String _stepsLabel() {
+    if (_isLoadingSteps) {
+      return 'Steps: ...';
+    }
+    if (!_stepsAuthorized) {
+      return 'Steps: permission needed';
+    }
+    if (_selectedSteps == null) {
+      return 'Steps: --';
+    }
+    return 'Steps: ${_formatSteps(_selectedSteps!)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Past Workouts')),
-      body: Column(
+      body: Stack(
         children: [
-          TableCalendar(
-            focusedDay: _focusedDay,
-            firstDay: DateTime.now().subtract(const Duration(days: 365 * 5)),
-            lastDay: DateTime.now().add(const Duration(days: 365 * 5)),
-            selectedDayPredicate: (day) => isSameDay(day, _selectedDay),
-            onDaySelected: (selectedDay, focusedDay) {
-              setState(() {
-                _selectedDay = selectedDay;
-                _focusedDay = focusedDay;
-              });
-              _loadSelectedWorkouts();
-            },
-            onPageChanged: (focusedDay) {
-              setState(() {
-                _focusedDay = focusedDay;
-              });
-              _loadMonthMarks();
-            },
-            calendarStyle: CalendarStyle(
-              outsideTextStyle:
-                  TextStyle(color: colorScheme.onSurfaceVariant),
-            ),
-            headerStyle: const HeaderStyle(
-              titleCentered: true,
-              formatButtonVisible: false,
-            ),
-            calendarBuilders: CalendarBuilders(
-              defaultBuilder: (context, day, focusedDay) =>
-                  _buildDayCell(context, day),
-              outsideBuilder: (context, day, focusedDay) =>
-                  _buildDayCell(context, day, isOutside: true),
-              todayBuilder: (context, day, focusedDay) =>
-                  _buildDayCell(context, day, isToday: true),
-              selectedBuilder: (context, day, focusedDay) =>
-                  _buildDayCell(context, day, isSelected: true),
+          Positioned.fill(
+            child: Image.asset(
+              'assets/calendar.png',
+              fit: BoxFit.cover,
             ),
           ),
-          const Divider(height: 1),
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    colorScheme.surface.withAlpha(210),
+                    colorScheme.surface.withAlpha(150),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Column(
+              children: [
+                TableCalendar(
+                  focusedDay: _focusedDay,
+                  firstDay:
+                      DateTime.now().subtract(const Duration(days: 365 * 5)),
+                  lastDay: DateTime.now().add(const Duration(days: 365 * 5)),
+                  selectedDayPredicate: (day) => isSameDay(day, _selectedDay),
+                  onDaySelected: (selectedDay, focusedDay) {
+                    setState(() {
+                      _selectedDay = selectedDay;
+                      _focusedDay = focusedDay;
+                    });
+                    _loadSelectedWorkouts();
+                  },
+                  onPageChanged: (focusedDay) {
+                    setState(() {
+                      _focusedDay = focusedDay;
+                    });
+                    _loadMonthMarks();
+                  },
+                  calendarStyle: CalendarStyle(
+                    outsideTextStyle:
+                        TextStyle(color: colorScheme.onSurfaceVariant),
+                  ),
+                  headerStyle: const HeaderStyle(
+                    titleCentered: true,
+                    formatButtonVisible: false,
+                  ),
+                  calendarBuilders: CalendarBuilders(
+                    defaultBuilder: (context, day, focusedDay) =>
+                        _buildDayCell(context, day),
+                    outsideBuilder: (context, day, focusedDay) =>
+                        _buildDayCell(context, day, isOutside: true),
+                    todayBuilder: (context, day, focusedDay) =>
+                        _buildDayCell(context, day, isToday: true),
+                    selectedBuilder: (context, day, focusedDay) =>
+                        _buildDayCell(context, day, isSelected: true),
+                  ),
+                ),
+                const Divider(height: 1),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: Row(
@@ -231,41 +284,53 @@ class _PastWorkoutsPageState extends State<PastWorkoutsPage> {
                   _formatFullDate(_selectedDay),
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
-                Text(
-                  '${_selectedWorkouts.length} workout${_selectedWorkouts.length == 1 ? '' : 's'}',
-                  style: Theme.of(context).textTheme.labelMedium,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '${_selectedWorkouts.length} workout${_selectedWorkouts.length == 1 ? '' : 's'}',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                    Text(
+                      _stepsLabel(),
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-          if (_selectedTitle != null && _selectedTitle!.trim().isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  _selectedTitle!,
-                  style: Theme.of(context).textTheme.labelMedium,
-                ),
-              ),
-            ),
-          Expanded(
-            child: _isLoadingWorkouts
-                ? const Center(child: CircularProgressIndicator())
-                : _selectedWorkouts.isEmpty
-                    ? const Center(
-                        child: Text('No workouts logged for this day.'),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _selectedWorkouts.length,
-                        separatorBuilder: (context, index) =>
-                            const SizedBox(height: 12),
-                        itemBuilder: (context, index) {
-                          final workout = _selectedWorkouts[index];
-                          return _WorkoutLogCard(workout: workout);
-                        },
+                if (_selectedTitle != null && _selectedTitle!.trim().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        _selectedTitle!,
+                        style: Theme.of(context).textTheme.labelMedium,
                       ),
+                    ),
+                  ),
+                Expanded(
+                  child: _isLoadingWorkouts
+                      ? const Center(child: CircularProgressIndicator())
+                      : _selectedWorkouts.isEmpty
+                          ? const Center(
+                              child: Text('No workouts logged for this day.'),
+                            )
+                          : ListView.separated(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: _selectedWorkouts.length,
+                              separatorBuilder: (context, index) =>
+                                  const SizedBox(height: 12),
+                              itemBuilder: (context, index) {
+                                final workout = _selectedWorkouts[index];
+                                return _WorkoutLogCard(workout: workout);
+                              },
+                            ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -297,41 +362,24 @@ class _StrengthWorkoutLogCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor =
-        isDark ? const Color(0xFF0B3D91) : Colors.blue.shade400;
-    final textColor = Colors.yellowAccent.shade400;
     return Card(
       elevation: 0,
-      color: cardColor,
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              workout.name,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(color: textColor),
-            ),
+            Text(workout.name, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 4),
             Text(
               'Type: Strength',
-              style: Theme.of(context)
-                  .textTheme
-                  .labelMedium
-                  ?.copyWith(color: textColor),
+              style: Theme.of(context).textTheme.labelMedium,
             ),
             const SizedBox(height: 8),
             if (workout.sets.isEmpty)
               Text(
                 'No sets logged yet.',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: textColor),
+                style: Theme.of(context).textTheme.bodySmall,
               )
             else
               ...workout.sets.asMap().entries.map((entry) {
@@ -344,13 +392,7 @@ class _StrengthWorkoutLogCard extends StatelessWidget {
                         : '${set.weight} lbs');
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    'Set $setIndex: ${set.reps} reps - $weightLabel',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(color: textColor),
-                  ),
+                  child: Text('Set $setIndex: ${set.reps} reps - $weightLabel'),
                 );
               }),
           ],
@@ -378,16 +420,9 @@ class _CardioWorkoutLogCard extends StatelessWidget {
       details.add('${workout.calories} cal');
     }
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor =
-        isDark ? const Color(0xFF0B3D91) : Colors.blue.shade400;
-    final textColor = Colors.yellowAccent.shade400;
     return Card(
       elevation: 0,
-      color: cardColor,
       child: ListTile(
-        textColor: textColor,
-        iconColor: textColor,
         title: Text(workout.name),
         subtitle: Text(
           details.isEmpty

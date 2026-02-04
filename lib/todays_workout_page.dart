@@ -180,140 +180,188 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
         bottomSafeArea + kFloatingActionButtonMargin + fabSize + 24;
     return Scaffold(
       appBar: AppBar(title: const Text("Today's Workout")),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                  child: TextFormField(
-                    controller: _titleController,
-                    decoration: InputDecoration(
-                      labelText: 'Workout title (optional)',
-                      hintText: 'Leg Day, Chest Day, Back Day...',
-                      prefixIcon: const Icon(Icons.edit),
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.save),
-                        tooltip: 'Save title',
-                        onPressed: _saveDayTitle,
-                      ),
-                    ),
-                    textInputAction: TextInputAction.done,
-                    onFieldSubmitted: (_) => _saveDayTitle(),
-                  ),
-                ),
-                if (_dayTitle != null) ...[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        _dayTitle!,
-                        style: Theme.of(context).textTheme.labelMedium,
-                      ),
-                    ),
-                  ),
-                ],
-                Expanded(
-                  child: _workouts.isEmpty
-                      ? const Center(child: Text('No workouts logged yet.'))
-                      : ReorderableListView.builder(
-                          scrollController: _workoutsScrollController,
-                          padding: EdgeInsets.fromLTRB(
-                            16,
-                            12,
-                            16,
-                            listBottomPadding,
-                          ),
-                          buildDefaultDragHandles: false,
-                          itemCount: _workouts.length,
-                          onReorder: (oldIndex, newIndex) {
-                            setState(() {
-                              if (newIndex > oldIndex) {
-                                newIndex -= 1;
-                              }
-                              final item = _workouts.removeAt(oldIndex);
-                              _workouts.insert(newIndex, item);
-                            });
-                          },
-                          itemBuilder: (context, index) {
-                            final workout = _workouts[index];
-                            final isCompleted =
-                                _completedWorkouts.contains(workout.id);
-                            final dragHandle = ReorderableDragStartListener(
-                              index: index,
-                              child: const Icon(Icons.drag_handle),
-                            );
-                            if (workout is StrengthWorkout) {
-                              return _StrengthWorkoutListItem(
-                                key: ValueKey(workout.id),
-                                workout: workout,
-                                isCompleted: isCompleted,
-                                dragHandle: dragHandle,
-                                onCompletedChanged: (value) =>
-                                    _toggleCompleted(workout.id, value),
-                                onDelete: () => _deleteWorkout(workout.id),
-                                onAddSet: (reps, weight, isBodyweight) async {
-                                  final newSet = WorkoutSet(
-                                    reps: reps,
-                                    weight: weight,
-                                    isBodyweight: isBodyweight,
-                                  );
-                                  await _db.insertSet(
-                                    workoutId: workout.id,
-                                    set: newSet,
-                                  );
-                                  if (!mounted) {
-                                    return;
-                                  }
-                                  setState(() {
-                                    workout.sets.add(newSet);
-                                  });
-                                },
-                              );
-                            }
-                            if (workout is CardioWorkout) {
-                              return _CardioWorkoutListItem(
-                                key: ValueKey(workout.id),
-                                workout: workout,
-                                isCompleted: isCompleted,
-                                dragHandle: dragHandle,
-                                onCompletedChanged: (value) =>
-                                    _toggleCompleted(workout.id, value),
-                                onDelete: () => _deleteWorkout(workout.id),
-                                onSave: (distance, time, calories) async {
-                                  await _db.updateCardioWorkout(
-                                    workoutId: workout.id,
-                                    distance: distance,
-                                    time: time,
-                                    calories: calories,
-                                  );
-                                  if (!mounted) {
-                                    return;
-                                  }
-                                  setState(() {
-                                    final index = _workouts.indexWhere(
-                                      (item) => item.id == workout.id,
-                                    );
-                                    if (index != -1) {
-                                      _workouts[index] = CardioWorkout(
-                                        id: workout.id,
-                                        name: workout.name,
-                                        distance: distance,
-                                        time: time,
-                                        calories: calories,
-                                      );
-                                    }
-                                  });
-                                },
-                              );
-                            }
-                            return const SizedBox.shrink();
-                          },
-                        ),
-                ),
-              ],
+      resizeToAvoidBottomInset: false,
+      body: Stack(
+        children: [
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: FractionallySizedBox(
+              heightFactor: 0.5,
+              widthFactor: 1,
+              child: Image.asset(
+                'assets/dumbells.png',
+                fit: BoxFit.cover,
+              ),
             ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: FractionallySizedBox(
+              heightFactor: 0.5,
+              widthFactor: 1,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Theme.of(context).colorScheme.surface.withAlpha(210),
+                      Theme.of(context).colorScheme.surface.withAlpha(150),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          AnimatedPadding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                        child: TextFormField(
+                          controller: _titleController,
+                          decoration: InputDecoration(
+                            labelText: 'Workout title (optional)',
+                            hintText: 'Leg Day, Chest Day, Back Day...',
+                            prefixIcon: const Icon(Icons.edit),
+                            suffixIcon: IconButton(
+                              icon: const Icon(Icons.save),
+                              tooltip: 'Save title',
+                              onPressed: _saveDayTitle,
+                            ),
+                          ),
+                          textInputAction: TextInputAction.done,
+                          onFieldSubmitted: (_) => _saveDayTitle(),
+                        ),
+                      ),
+                      if (_dayTitle != null) ...[
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              _dayTitle!,
+                              style: Theme.of(context).textTheme.labelMedium,
+                            ),
+                          ),
+                        ),
+                      ],
+                      Expanded(
+                        child: _workouts.isEmpty
+                            ? const Center(
+                                child: Text('No workouts logged yet.'),
+                              )
+                            : ReorderableListView.builder(
+                                scrollController: _workoutsScrollController,
+                                padding: EdgeInsets.fromLTRB(
+                                  16,
+                                  12,
+                                  16,
+                                  listBottomPadding,
+                                ),
+                                buildDefaultDragHandles: false,
+                                itemCount: _workouts.length,
+                                onReorder: (oldIndex, newIndex) {
+                                  setState(() {
+                                    if (newIndex > oldIndex) {
+                                      newIndex -= 1;
+                                    }
+                                    final item = _workouts.removeAt(oldIndex);
+                                    _workouts.insert(newIndex, item);
+                                  });
+                                },
+                                itemBuilder: (context, index) {
+                                  final workout = _workouts[index];
+                                  final isCompleted =
+                                      _completedWorkouts.contains(workout.id);
+                                  final dragHandle =
+                                      ReorderableDragStartListener(
+                                    index: index,
+                                    child: const Icon(Icons.drag_handle),
+                                  );
+                                  if (workout is StrengthWorkout) {
+                                    return _StrengthWorkoutListItem(
+                                      key: ValueKey(workout.id),
+                                      workout: workout,
+                                      isCompleted: isCompleted,
+                                      dragHandle: dragHandle,
+                                      onCompletedChanged: (value) =>
+                                          _toggleCompleted(workout.id, value),
+                                      onDelete: () =>
+                                          _deleteWorkout(workout.id),
+                                      onAddSet:
+                                          (reps, weight, isBodyweight) async {
+                                        final newSet = WorkoutSet(
+                                          reps: reps,
+                                          weight: weight,
+                                          isBodyweight: isBodyweight,
+                                        );
+                                        await _db.insertSet(
+                                          workoutId: workout.id,
+                                          set: newSet,
+                                        );
+                                        if (!mounted) {
+                                          return;
+                                        }
+                                        setState(() {
+                                          workout.sets.add(newSet);
+                                        });
+                                      },
+                                    );
+                                  }
+                                  if (workout is CardioWorkout) {
+                                    return _CardioWorkoutListItem(
+                                      key: ValueKey(workout.id),
+                                      workout: workout,
+                                      isCompleted: isCompleted,
+                                      dragHandle: dragHandle,
+                                      onCompletedChanged: (value) =>
+                                          _toggleCompleted(workout.id, value),
+                                      onDelete: () =>
+                                          _deleteWorkout(workout.id),
+                                      onSave: (distance, time, calories) async {
+                                        await _db.updateCardioWorkout(
+                                          workoutId: workout.id,
+                                          distance: distance,
+                                          time: time,
+                                          calories: calories,
+                                        );
+                                        if (!mounted) {
+                                          return;
+                                        }
+                                        setState(() {
+                                          final index = _workouts.indexWhere(
+                                            (item) => item.id == workout.id,
+                                          );
+                                          if (index != -1) {
+                                            _workouts[index] = CardioWorkout(
+                                              id: workout.id,
+                                              name: workout.name,
+                                              distance: distance,
+                                              time: time,
+                                              calories: calories,
+                                            );
+                                          }
+                                        });
+                                      },
+                                    );
+                                  }
+                                  return const SizedBox.shrink();
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddWorkoutDialog,
         tooltip: 'Add exercise',
@@ -452,15 +500,12 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseCardColor =
-        isDark ? const Color(0xFF0B3D91) : Colors.blue.shade400;
-    final completedCardColor =
-        isDark ? const Color(0xFF0A337A) : Colors.blue.shade500;
-    final cardColor =
-        widget.isCompleted ? completedCardColor : baseCardColor;
-    final textColor = Colors.yellowAccent.shade400;
+    final colorScheme = Theme.of(context).colorScheme;
+    final cardColor = widget.isCompleted
+        ? colorScheme.primary.withAlpha(46)
+        : colorScheme.surface;
     final contentOpacity = widget.isCompleted ? 0.6 : 1.0;
+    final isEditable = !widget.isCompleted;
 
     return Card(
       elevation: 0,
@@ -482,10 +527,7 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
                   Expanded(
                     child: Text(
                       widget.workout.name,
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleLarge
-                          ?.copyWith(color: textColor),
+                      style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
                   widget.dragHandle,
@@ -498,23 +540,14 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
               const SizedBox(height: 4.0),
               Text(
                 'Type: Strength',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(color: textColor),
+                style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 8.0),
               ...widget.workout.sets.map((set) {
-                final label = set.isBodyweight
-                    ? 'Reps: ${set.reps}, Weight: Body weight'
-                    : 'Reps: ${set.reps}, Weight: ${set.weight} lbs';
-                return Text(
-                  label,
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyMedium
-                      ?.copyWith(color: textColor),
-                );
+                if (set.isBodyweight) {
+                  return Text('Reps: ${set.reps}, Weight: Body weight');
+                }
+                return Text('Reps: ${set.reps}, Weight: ${set.weight} lbs');
               }),
               const SizedBox(height: 8.0),
               Form(
@@ -525,13 +558,10 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
                       children: [
                         Expanded(
                           child: TextFormField(
-                            decoration: InputDecoration(
-                              labelText: 'Reps',
-                              labelStyle: TextStyle(color: textColor),
-                              floatingLabelStyle: TextStyle(color: textColor),
-                            ),
+                            decoration:
+                                const InputDecoration(labelText: 'Reps'),
                             keyboardType: TextInputType.number,
-                            style: TextStyle(color: textColor),
+                            enabled: isEditable,
                             validator: (value) {
                               if (value == null || value.isEmpty) {
                                 return 'Enter reps';
@@ -544,14 +574,11 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
                         const SizedBox(width: 8.0),
                         Expanded(
                           child: TextFormField(
-                            decoration: InputDecoration(
+                            decoration: const InputDecoration(
                               labelText: 'Weight (lbs)',
-                              labelStyle: TextStyle(color: textColor),
-                              floatingLabelStyle: TextStyle(color: textColor),
                             ),
                             keyboardType: TextInputType.number,
-                            enabled: !_isBodyweight,
-                            style: TextStyle(color: textColor),
+                            enabled: isEditable && !_isBodyweight,
                             validator: (value) {
                               if (!_isBodyweight &&
                                   (value == null || value.isEmpty)) {
@@ -567,34 +594,35 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
                         IconButton(
                           key: const Key('add_set_button'),
                           icon: const Icon(Icons.add),
-                          onPressed: () {
-                            if (_formKey.currentState!.validate()) {
-                              _formKey.currentState!.save();
-                              widget.onAddSet(
-                                _reps,
-                                _weight,
-                                _isBodyweight,
-                              );
-                              _formKey.currentState!.reset();
-                              setState(() {
-                                _isBodyweight = false;
-                              });
-                            }
-                          },
+                          onPressed: isEditable
+                              ? () {
+                                  if (_formKey.currentState!.validate()) {
+                                    _formKey.currentState!.save();
+                                    widget.onAddSet(
+                                      _reps,
+                                      _weight,
+                                      _isBodyweight,
+                                    );
+                                    _formKey.currentState!.reset();
+                                    setState(() {
+                                      _isBodyweight = false;
+                                    });
+                                  }
+                                }
+                              : null,
                         ),
                       ],
                     ),
                     CheckboxListTile(
-                      title: Text(
-                        'Body weight',
-                        style: TextStyle(color: textColor),
-                      ),
+                      title: const Text('Body weight'),
                       value: _isBodyweight,
-                      onChanged: (value) {
-                        setState(() {
-                          _isBodyweight = value ?? false;
-                        });
-                      },
+                      onChanged: isEditable
+                          ? (value) {
+                              setState(() {
+                                _isBodyweight = value ?? false;
+                              });
+                            }
+                          : null,
                     ),
                   ],
                 ),
@@ -701,15 +729,12 @@ class _CardioWorkoutListItemState extends State<_CardioWorkoutListItem> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseCardColor =
-        isDark ? const Color(0xFF0B3D91) : Colors.blue.shade400;
-    final completedCardColor =
-        isDark ? const Color(0xFF0A337A) : Colors.blue.shade500;
-    final cardColor =
-        widget.isCompleted ? completedCardColor : baseCardColor;
-    final textColor = Colors.yellowAccent.shade400;
+    final colorScheme = Theme.of(context).colorScheme;
+    final cardColor = widget.isCompleted
+        ? colorScheme.primary.withAlpha(46)
+        : colorScheme.surface;
     final contentOpacity = widget.isCompleted ? 0.6 : 1.0;
+    final isEditable = !widget.isCompleted;
 
     return Card(
       elevation: 0,
@@ -731,10 +756,7 @@ class _CardioWorkoutListItemState extends State<_CardioWorkoutListItem> {
                   Expanded(
                     child: Text(
                       widget.workout.name,
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleLarge
-                          ?.copyWith(color: textColor),
+                      style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
                   widget.dragHandle,
@@ -747,10 +769,7 @@ class _CardioWorkoutListItemState extends State<_CardioWorkoutListItem> {
               const SizedBox(height: 4.0),
               Text(
                 'Type: Cardio',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(color: textColor),
+                style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 8.0),
               Form(
@@ -762,15 +781,14 @@ class _CardioWorkoutListItemState extends State<_CardioWorkoutListItem> {
                         Expanded(
                           child: TextFormField(
                             controller: _distanceController,
-                            decoration: InputDecoration(
+                            decoration: const InputDecoration(
                               labelText: 'Distance (miles)',
-                              labelStyle: TextStyle(color: textColor),
-                              floatingLabelStyle: TextStyle(color: textColor),
                             ),
-                            keyboardType: const TextInputType.numberWithOptions(
+                            keyboardType:
+                                const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
-                            style: TextStyle(color: textColor),
+                            enabled: isEditable,
                             validator: _validateDouble,
                           ),
                         ),
@@ -778,13 +796,11 @@ class _CardioWorkoutListItemState extends State<_CardioWorkoutListItem> {
                         Expanded(
                           child: TextFormField(
                             controller: _durationController,
-                            decoration: InputDecoration(
+                            decoration: const InputDecoration(
                               labelText: 'Duration (min)',
-                              labelStyle: TextStyle(color: textColor),
-                              floatingLabelStyle: TextStyle(color: textColor),
                             ),
                             keyboardType: TextInputType.number,
-                            style: TextStyle(color: textColor),
+                            enabled: isEditable,
                             validator: _validateInt,
                           ),
                         ),
@@ -792,20 +808,18 @@ class _CardioWorkoutListItemState extends State<_CardioWorkoutListItem> {
                           key: const Key('save_cardio_button'),
                           icon: const Icon(Icons.save),
                           tooltip: 'Save cardio details',
-                          onPressed: _saveDetails,
+                          onPressed: isEditable ? _saveDetails : null,
                         ),
                       ],
                     ),
                     const SizedBox(height: 8.0),
                     TextFormField(
                       controller: _caloriesController,
-                      decoration: InputDecoration(
+                      decoration: const InputDecoration(
                         labelText: 'Calories burned (optional)',
-                        labelStyle: TextStyle(color: textColor),
-                        floatingLabelStyle: TextStyle(color: textColor),
                       ),
                       keyboardType: TextInputType.number,
-                      style: TextStyle(color: textColor),
+                      enabled: isEditable,
                       validator: _validateInt,
                     ),
                   ],
