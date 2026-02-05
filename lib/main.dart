@@ -10,6 +10,7 @@ import 'package:flutter_fitness/todays_workout_page.dart';
 import 'package:flutter_fitness/past_workouts_page.dart';
 import 'package:flutter_fitness/my_data_page.dart';
 import 'package:flutter_fitness/nutrition_page.dart';
+import 'package:flutter_fitness/steps_page.dart';
 import 'package:flutter_fitness/services/steps_service.dart';
 
 Future<void> main() async {
@@ -433,6 +434,12 @@ class _MyHomePageState extends State<MyHomePage> {
         icon: Icons.calendar_today,
         colorScheme: colorScheme,
         onTap: () => _openPage(const PastWorkoutsPage()),
+      ),
+      _buildSecondaryCard(
+        title: 'Steps',
+        icon: Icons.directions_walk,
+        colorScheme: colorScheme,
+        onTap: () => _openPage(const StepsPage()),
       ),
       _buildSecondaryCard(
         title: 'My Data',

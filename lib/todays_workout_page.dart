@@ -296,6 +296,21 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
                                           _toggleCompleted(workout.id, value),
                                       onDelete: () =>
                                           _deleteWorkout(workout.id),
+                                      onEditSet: (updatedSet) async {
+                                        await _db.updateSet(set: updatedSet);
+                                        if (!mounted) {
+                                          return;
+                                        }
+                                        setState(() {
+                                          final setIndex =
+                                              workout.sets.indexWhere(
+                                            (set) => set.id == updatedSet.id,
+                                          );
+                                          if (setIndex != -1) {
+                                            workout.sets[setIndex] = updatedSet;
+                                          }
+                                        });
+                                      },
                                       onAddSet:
                                           (reps, weight, isBodyweight) async {
                                         final newSet = WorkoutSet(
@@ -303,7 +318,7 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
                                           weight: weight,
                                           isBodyweight: isBodyweight,
                                         );
-                                        await _db.insertSet(
+                                        final setId = await _db.insertSet(
                                           workoutId: workout.id,
                                           set: newSet,
                                         );
@@ -311,7 +326,14 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
                                           return;
                                         }
                                         setState(() {
-                                          workout.sets.add(newSet);
+                                          workout.sets.add(
+                                            WorkoutSet(
+                                              id: setId,
+                                              reps: newSet.reps,
+                                              weight: newSet.weight,
+                                              isBodyweight: newSet.isBodyweight,
+                                            ),
+                                          );
                                         });
                                       },
                                     );
@@ -473,6 +495,7 @@ class _StrengthWorkoutListItem extends StatefulWidget {
   final StrengthWorkout workout;
   final VoidCallback onDelete;
   final void Function(int reps, double? weight, bool isBodyweight) onAddSet;
+  final Future<void> Function(WorkoutSet updatedSet) onEditSet;
   final bool isCompleted;
   final ValueChanged<bool> onCompletedChanged;
   final Widget dragHandle;
@@ -481,6 +504,7 @@ class _StrengthWorkoutListItem extends StatefulWidget {
     required this.workout,
     required this.onDelete,
     required this.onAddSet,
+    required this.onEditSet,
     required this.isCompleted,
     required this.onCompletedChanged,
     required this.dragHandle,
@@ -497,6 +521,146 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
   int _reps = 0;
   double? _weight;
   bool _isBodyweight = false;
+
+  Future<void> _showEditSetDialog(WorkoutSet set) async {
+    final repsController = TextEditingController(text: set.reps.toString());
+    final weightController = TextEditingController(
+      text: set.weight?.toString() ?? '',
+    );
+    var isBodyweight = set.isBodyweight;
+    final editFormKey = GlobalKey<FormState>();
+
+    try {
+      final updatedSet = await showDialog<WorkoutSet>(
+        context: context,
+        builder: (context) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              void submit() {
+                if (!editFormKey.currentState!.validate()) {
+                  return;
+                }
+                final reps = int.parse(repsController.text.trim());
+                final weight = isBodyweight
+                    ? null
+                    : double.parse(weightController.text.trim());
+                FocusScope.of(context).unfocus();
+                Navigator.of(context).pop(
+                  WorkoutSet(
+                    id: set.id,
+                    reps: reps,
+                    weight: weight,
+                    isBodyweight: isBodyweight,
+                  ),
+                );
+              }
+
+              return AlertDialog(
+                title: const Text('Edit set'),
+                content: Form(
+                  key: editFormKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextFormField(
+                        controller: repsController,
+                        decoration:
+                            const InputDecoration(labelText: 'Reps'),
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.next,
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Enter reps';
+                          }
+                          if (int.tryParse(value.trim()) == null) {
+                            return 'Enter a whole number';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 8.0),
+                      TextFormField(
+                        controller: weightController,
+                        decoration: const InputDecoration(
+                          labelText: 'Weight (lbs)',
+                        ),
+                        keyboardType:
+                            const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        textInputAction: TextInputAction.done,
+                        enabled: !isBodyweight,
+                        validator: (value) {
+                          if (isBodyweight) {
+                            return null;
+                          }
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Enter weight';
+                          }
+                          if (double.tryParse(value.trim()) == null) {
+                            return 'Enter a number';
+                          }
+                          return null;
+                        },
+                        onFieldSubmitted: (_) => submit(),
+                      ),
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Body weight'),
+                        value: isBodyweight,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            isBodyweight = value ?? false;
+                            if (isBodyweight) {
+                              weightController.clear();
+                            }
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    onPressed: submit,
+                    child: const Text('Save'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+
+      if (updatedSet != null) {
+        await widget.onEditSet(updatedSet);
+      }
+    } finally {
+      repsController.dispose();
+      weightController.dispose();
+    }
+  }
+
+  void _submitSet() {
+    if (widget.isCompleted) {
+      return;
+    }
+    final formState = _formKey.currentState;
+    if (formState == null || !formState.validate()) {
+      return;
+    }
+    formState.save();
+    widget.onAddSet(_reps, _weight, _isBodyweight);
+    formState.reset();
+    setState(() {
+      _isBodyweight = false;
+    });
+    FocusScope.of(context).unfocus();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -544,10 +708,23 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
               ),
               const SizedBox(height: 8.0),
               ...widget.workout.sets.map((set) {
-                if (set.isBodyweight) {
-                  return Text('Reps: ${set.reps}, Weight: Body weight');
-                }
-                return Text('Reps: ${set.reps}, Weight: ${set.weight} lbs');
+                final label = set.isBodyweight
+                    ? 'Reps: ${set.reps}, Weight: Body weight'
+                    : 'Reps: ${set.reps}, Weight: ${set.weight} lbs';
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 4.0),
+                  child: Row(
+                    children: [
+                      Expanded(child: Text(label)),
+                      IconButton(
+                        icon: const Icon(Icons.edit),
+                        tooltip: 'Edit set',
+                        onPressed:
+                            isEditable ? () => _showEditSetDialog(set) : null,
+                      ),
+                    ],
+                  ),
+                );
               }),
               const SizedBox(height: 8.0),
               Form(
@@ -561,6 +738,7 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
                             decoration:
                                 const InputDecoration(labelText: 'Reps'),
                             keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.done,
                             enabled: isEditable,
                             validator: (value) {
                               if (value == null || value.isEmpty) {
@@ -569,6 +747,7 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
                               return null;
                             },
                             onSaved: (value) => _reps = int.parse(value!),
+                            onFieldSubmitted: (_) => _submitSet(),
                           ),
                         ),
                         const SizedBox(width: 8.0),
@@ -578,6 +757,7 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
                               labelText: 'Weight (lbs)',
                             ),
                             keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.done,
                             enabled: isEditable && !_isBodyweight,
                             validator: (value) {
                               if (!_isBodyweight &&
@@ -589,27 +769,13 @@ class _StrengthWorkoutListItemState extends State<_StrengthWorkoutListItem> {
                             onSaved: (value) => _weight = _isBodyweight
                                 ? null
                                 : double.parse(value!),
+                            onFieldSubmitted: (_) => _submitSet(),
                           ),
                         ),
                         IconButton(
                           key: const Key('add_set_button'),
                           icon: const Icon(Icons.add),
-                          onPressed: isEditable
-                              ? () {
-                                  if (_formKey.currentState!.validate()) {
-                                    _formKey.currentState!.save();
-                                    widget.onAddSet(
-                                      _reps,
-                                      _weight,
-                                      _isBodyweight,
-                                    );
-                                    _formKey.currentState!.reset();
-                                    setState(() {
-                                      _isBodyweight = false;
-                                    });
-                                  }
-                                }
-                              : null,
+                          onPressed: isEditable ? _submitSet : null,
                         ),
                       ],
                     ),

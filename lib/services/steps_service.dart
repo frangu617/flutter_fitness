@@ -18,6 +18,34 @@ class StepsService {
     }
   }
 
+  Future<HealthConnectSdkStatus?> _getHealthConnectStatus() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return null;
+    }
+    await _ensureConfigured();
+    if (!_configured) {
+      return null;
+    }
+    try {
+      return await _health.getHealthConnectSdkStatus();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> openHealthConnectInstall() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return;
+    }
+    await _ensureConfigured();
+    if (!_configured) {
+      return;
+    }
+    try {
+      await _health.installHealthConnect();
+    } catch (_) {}
+  }
+
   Future<bool> _ensureAuthorized({required bool requestHistory}) async {
     if (kIsWeb) {
       return false;
@@ -72,18 +100,37 @@ class StepsService {
     if (kIsWeb) {
       return const StepsReadResult(authorized: false);
     }
+    final status = await _getHealthConnectStatus();
+    if (defaultTargetPlatform == TargetPlatform.android &&
+        status != null &&
+        status != HealthConnectSdkStatus.sdkAvailable) {
+      return StepsReadResult(
+        authorized: false,
+        healthConnectStatus: status,
+      );
+    }
     final start = DateTime(day.year, day.month, day.day);
     final end = start.add(const Duration(days: 1));
     final authorized =
         await _ensureAuthorized(requestHistory: _needsHistoryPermission(start));
     if (!authorized) {
-      return const StepsReadResult(authorized: false);
+      return StepsReadResult(
+        authorized: false,
+        healthConnectStatus: status,
+      );
     }
     try {
       final steps = await _health.getTotalStepsInInterval(start, end);
-      return StepsReadResult(authorized: true, steps: steps);
+      return StepsReadResult(
+        authorized: true,
+        steps: steps,
+        healthConnectStatus: status,
+      );
     } catch (_) {
-      return const StepsReadResult(authorized: true);
+      return StepsReadResult(
+        authorized: true,
+        healthConnectStatus: status,
+      );
     }
   }
 
@@ -94,13 +141,27 @@ class StepsService {
     if (kIsWeb) {
       return const StepsHistoryResult(authorized: false, days: []);
     }
+    final status = await _getHealthConnectStatus();
+    if (defaultTargetPlatform == TargetPlatform.android &&
+        status != null &&
+        status != HealthConnectSdkStatus.sdkAvailable) {
+      return StepsHistoryResult(
+        authorized: false,
+        days: const [],
+        healthConnectStatus: status,
+      );
+    }
     final startDate = DateTime(start.year, start.month, start.day);
     final endDate = DateTime(end.year, end.month, end.day);
     final authorized = await _ensureAuthorized(
       requestHistory: _needsHistoryPermission(startDate),
     );
     if (!authorized) {
-      return const StepsHistoryResult(authorized: false, days: []);
+      return StepsHistoryResult(
+        authorized: false,
+        days: const [],
+        healthConnectStatus: status,
+      );
     }
 
     final days = endDate.difference(startDate).inDays;
@@ -118,22 +179,58 @@ class StepsService {
       }
     }
 
-    return StepsHistoryResult(authorized: true, days: results);
+    return StepsHistoryResult(
+      authorized: true,
+      days: results,
+      healthConnectStatus: status,
+    );
   }
 }
 
 class StepsReadResult {
   final bool authorized;
   final int? steps;
+  final HealthConnectSdkStatus? healthConnectStatus;
 
-  const StepsReadResult({required this.authorized, this.steps});
+  const StepsReadResult({
+    required this.authorized,
+    this.steps,
+    this.healthConnectStatus,
+  });
+
+  bool get healthConnectAvailable =>
+      healthConnectStatus == null ||
+      healthConnectStatus == HealthConnectSdkStatus.sdkAvailable;
+
+  bool get needsHealthConnectInstall =>
+      healthConnectStatus == HealthConnectSdkStatus.sdkUnavailable;
+
+  bool get needsHealthConnectUpdate =>
+      healthConnectStatus ==
+      HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired;
 }
 
 class StepsHistoryResult {
   final bool authorized;
   final List<StepsDay> days;
+  final HealthConnectSdkStatus? healthConnectStatus;
 
-  const StepsHistoryResult({required this.authorized, required this.days});
+  const StepsHistoryResult({
+    required this.authorized,
+    required this.days,
+    this.healthConnectStatus,
+  });
+
+  bool get healthConnectAvailable =>
+      healthConnectStatus == null ||
+      healthConnectStatus == HealthConnectSdkStatus.sdkAvailable;
+
+  bool get needsHealthConnectInstall =>
+      healthConnectStatus == HealthConnectSdkStatus.sdkUnavailable;
+
+  bool get needsHealthConnectUpdate =>
+      healthConnectStatus ==
+      HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired;
 }
 
 class StepsDay {

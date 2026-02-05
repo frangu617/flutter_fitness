@@ -1,11 +1,17 @@
 enum WorkoutType { cardio, strength }
 
 class WorkoutSet {
+  final int? id;
   final int reps;
   final double? weight;
   final bool isBodyweight;
 
-  WorkoutSet({required this.reps, this.weight, this.isBodyweight = false});
+  WorkoutSet({
+    this.id,
+    required this.reps,
+    this.weight,
+    this.isBodyweight = false,
+  });
 }
 
 abstract class Workout {

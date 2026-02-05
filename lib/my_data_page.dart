@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_fitness/data/workout_database.dart';
@@ -1050,6 +1051,200 @@ class _MyDataPageState extends State<MyDataPage> {
     );
   }
 
+  Map<String, Object?> _parseBackupJson(String raw) {
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) {
+      throw const FormatException('Backup JSON must be an object.');
+    }
+    return decoded.map((key, value) => MapEntry(key.toString(), value));
+  }
+
+  Future<void> _showWorkoutBackupDialog() async {
+    final backup = await _db.exportWorkoutBackup();
+    final backupJson = const JsonEncoder.withIndent('  ').convert(backup);
+    if (!mounted) {
+      return;
+    }
+
+    final copied = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Workout backup'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: SelectableText(backupJson),
+            ),
+          ),
+          actions: [
+            TextButton.icon(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: backupJson));
+                if (context.mounted) {
+                  Navigator.of(context).pop(true);
+                }
+              },
+              icon: const Icon(Icons.copy),
+              label: const Text('Copy'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (copied == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Backup copied to clipboard.')),
+      );
+    }
+  }
+
+  Future<void> _showWorkoutRestoreDialog() async {
+    final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    try {
+      final rawJson = await showDialog<String?>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('Restore workouts'),
+            content: Form(
+              key: formKey,
+              child: TextFormField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  labelText: 'Backup JSON',
+                  hintText: 'Paste your workout backup JSON here',
+                ),
+                minLines: 6,
+                maxLines: 12,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Paste backup JSON';
+                  }
+                  return null;
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  if (!formKey.currentState!.validate()) {
+                    return;
+                  }
+                  Navigator.of(context).pop(controller.text.trim());
+                },
+                child: const Text('Validate'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (rawJson == null || !mounted) {
+        return;
+      }
+
+      Map<String, Object?> backup;
+      try {
+        backup = _parseBackupJson(rawJson);
+      } on FormatException catch (error) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
+        return;
+      } catch (_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Invalid backup JSON.')),
+        );
+        return;
+      }
+
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('Replace workouts?'),
+            content: const Text(
+              'Restoring will replace all current workouts and workout titles on this device.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Restore'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (confirmed != true || !mounted) {
+        return;
+      }
+
+      await _db.restoreWorkoutBackup(backup);
+      await _loadStats();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Workouts restored.')),
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  Widget _buildBackupCard() {
+    return Card(
+      elevation: 0,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _sectionTitle('Backup & Restore'),
+            Text(
+              'Export your workouts as JSON and keep it somewhere safe. '
+              'Restoring replaces workouts and workout titles on this device.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _showWorkoutBackupDialog,
+                  icon: const Icon(Icons.download),
+                  label: const Text('Export workouts'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _showWorkoutRestoreDialog,
+                  icon: const Icon(Icons.upload),
+                  label: const Text('Restore workouts'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -1102,6 +1297,8 @@ class _MyDataPageState extends State<MyDataPage> {
                     ),
                   ),
                 ],
+                const SizedBox(height: 16),
+                _buildBackupCard(),
                 const SizedBox(height: 20),
                 ElevatedButton.icon(
                   onPressed: _saveAndNotify,

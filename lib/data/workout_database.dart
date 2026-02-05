@@ -131,17 +131,36 @@ class WorkoutDatabase {
     }
   }
 
-  Future<void> insertSet({
+  Future<int> insertSet({
     required String workoutId,
     required WorkoutSet set,
   }) async {
     final db = await database;
-    await db.insert('workout_sets', <String, Object?>{
+    final id = await db.insert('workout_sets', <String, Object?>{
       'workout_id': workoutId,
       'reps': set.reps,
       'weight': set.weight,
       'is_bodyweight': set.isBodyweight ? 1 : 0,
     });
+    return id;
+  }
+
+  Future<void> updateSet({required WorkoutSet set}) async {
+    final setId = set.id;
+    if (setId == null) {
+      return;
+    }
+    final db = await database;
+    await db.update(
+      'workout_sets',
+      <String, Object?>{
+        'reps': set.reps,
+        'weight': set.weight,
+        'is_bodyweight': set.isBodyweight ? 1 : 0,
+      },
+      where: 'id = ?',
+      whereArgs: [setId],
+    );
   }
 
   Future<void> deleteWorkout(String workoutId) async {
@@ -270,6 +289,7 @@ class WorkoutDatabase {
         orderBy: 'id ASC',
       );
       for (final row in setRows) {
+        final id = row['id'] as int;
         final workoutId = row['workout_id'] as String;
         final reps = row['reps'] as int;
         final weightValue = row['weight'];
@@ -279,6 +299,7 @@ class WorkoutDatabase {
             .putIfAbsent(workoutId, () => <WorkoutSet>[])
             .add(
               WorkoutSet(
+                id: id,
                 reps: reps,
                 weight: weight?.toDouble(),
                 isBodyweight: isBodyweight,
@@ -386,5 +407,225 @@ class WorkoutDatabase {
       return 0;
     }
     return (value as num).toDouble();
+  }
+
+  Future<Map<String, Object?>> exportWorkoutBackup() async {
+    final db = await database;
+    final workouts = await db.query(
+      'workouts',
+      orderBy: 'date_key ASC, id ASC',
+    );
+    final sets = await db.query(
+      'workout_sets',
+      orderBy: 'id ASC',
+    );
+    final dayTitles = await db.query(
+      'workout_day_titles',
+      orderBy: 'date_key ASC',
+    );
+
+    return {
+      'version': 1,
+      'exported_at': DateTime.now().toIso8601String(),
+      'workouts': workouts.map(_sanitizeWorkoutRow).toList(),
+      'sets': sets.map(_sanitizeSetRow).toList(),
+      'day_titles': dayTitles.map(_sanitizeTitleRow).toList(),
+    };
+  }
+
+  Future<void> restoreWorkoutBackup(Map<String, Object?> backup) async {
+    final version = _parseOptionalInt(backup['version']);
+    if (version != 1) {
+      throw const FormatException('Unsupported backup version.');
+    }
+
+    final workouts = _castListOfMaps(backup['workouts'], 'workouts');
+    final sets = _castListOfMaps(backup['sets'], 'sets');
+    final dayTitles = _castListOfMaps(backup['day_titles'], 'day_titles');
+
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('workout_sets');
+      await txn.delete('workout_day_titles');
+      await txn.delete('workouts');
+
+      for (final workout in workouts) {
+        await txn.insert(
+          'workouts',
+          _buildWorkoutInsert(workout),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+
+      for (final set in sets) {
+        await txn.insert(
+          'workout_sets',
+          _buildSetInsert(set),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+
+      for (final title in dayTitles) {
+        await txn.insert(
+          'workout_day_titles',
+          _buildDayTitleInsert(title),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    });
+  }
+
+  Map<String, Object?> _sanitizeWorkoutRow(Map<String, Object?> row) {
+    return {
+      'id': row['id'],
+      'name': row['name'],
+      'type': row['type'],
+      'date_key': row['date_key'],
+      'distance': row['distance'],
+      'time_minutes': row['time_minutes'],
+      'calories': row['calories'],
+    };
+  }
+
+  Map<String, Object?> _sanitizeSetRow(Map<String, Object?> row) {
+    return {
+      'id': row['id'],
+      'workout_id': row['workout_id'],
+      'reps': row['reps'],
+      'weight': row['weight'],
+      'is_bodyweight': row['is_bodyweight'],
+    };
+  }
+
+  Map<String, Object?> _sanitizeTitleRow(Map<String, Object?> row) {
+    return {
+      'date_key': row['date_key'],
+      'title': row['title'],
+    };
+  }
+
+  List<Map<String, Object?>> _castListOfMaps(Object? value, String label) {
+    if (value is! List) {
+      throw FormatException('Missing or invalid $label section.');
+    }
+    return value.map((entry) {
+      if (entry is! Map) {
+        throw FormatException('Invalid entry in $label.');
+      }
+      return entry.map((key, value) => MapEntry(key.toString(), value));
+    }).toList();
+  }
+
+  Map<String, Object?> _buildWorkoutInsert(Map<String, Object?> row) {
+    final id = _requireString(row['id'], 'workout id');
+    final name = _requireString(row['name'], 'workout name');
+    final type = _requireString(row['type'], 'workout type');
+    final dateKey = _requireString(row['date_key'], 'date key');
+    final distance = _parseOptionalDouble(row['distance']);
+    final timeMinutes = _parseOptionalInt(row['time_minutes']);
+    final calories = _parseOptionalInt(row['calories']);
+
+    return {
+      'id': id,
+      'name': name,
+      'type': type,
+      'date_key': dateKey,
+      'distance': distance,
+      'time_minutes': timeMinutes,
+      'calories': calories,
+    };
+  }
+
+  Map<String, Object?> _buildSetInsert(Map<String, Object?> row) {
+    final workoutId = _requireString(row['workout_id'], 'set workout_id');
+    final reps = _parseOptionalInt(row['reps']);
+    if (reps == null) {
+      throw const FormatException('Set reps is required.');
+    }
+    final weight = _parseOptionalDouble(row['weight']);
+    final isBodyweight = _parseBoolToInt(row['is_bodyweight']);
+    final id = _parseOptionalInt(row['id']);
+
+    final values = <String, Object?>{
+      'workout_id': workoutId,
+      'reps': reps,
+      'weight': weight,
+      'is_bodyweight': isBodyweight,
+    };
+    if (id != null) {
+      values['id'] = id;
+    }
+    return values;
+  }
+
+  Map<String, Object?> _buildDayTitleInsert(Map<String, Object?> row) {
+    final dateKey = _requireString(row['date_key'], 'day title date');
+    final title = row['title']?.toString() ?? '';
+    return {
+      'date_key': dateKey,
+      'title': title,
+    };
+  }
+
+  String _requireString(Object? value, String label) {
+    final text = value?.toString();
+    if (text == null || text.trim().isEmpty) {
+      throw FormatException('Missing $label.');
+    }
+    return text;
+  }
+
+  int? _parseOptionalInt(Object? value) {
+    if (value == null) {
+      return null;
+    }
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    final text = value.toString().trim();
+    if (text.isEmpty) {
+      return null;
+    }
+    return int.tryParse(text);
+  }
+
+  double? _parseOptionalDouble(Object? value) {
+    if (value == null) {
+      return null;
+    }
+    if (value is double) {
+      return value;
+    }
+    if (value is num) {
+      return value.toDouble();
+    }
+    final text = value.toString().trim();
+    if (text.isEmpty) {
+      return null;
+    }
+    return double.tryParse(text);
+  }
+
+  int _parseBoolToInt(Object? value) {
+    if (value == null) {
+      return 0;
+    }
+    if (value is bool) {
+      return value ? 1 : 0;
+    }
+    if (value is num) {
+      return value == 0 ? 0 : 1;
+    }
+    final text = value.toString().trim().toLowerCase();
+    if (text == 'true' || text == '1' || text == 'yes') {
+      return 1;
+    }
+    if (text == 'false' || text == '0' || text == 'no') {
+      return 0;
+    }
+    throw const FormatException('Invalid bodyweight flag.');
   }
 }
