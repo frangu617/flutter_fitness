@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_fitness/data/workout_database.dart';
 import 'package:flutter_fitness/models/workout.dart';
+import 'package:health/health.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class TodaysWorkoutPage extends StatefulWidget {
   const TodaysWorkoutPage({super.key, this.autoOpenAdd = false});
@@ -21,6 +23,7 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
   final ScrollController _workoutsScrollController = ScrollController();
   final TextEditingController _titleController = TextEditingController();
   String? _dayTitle;
+  int? _steps;
 
   String _dateKey(DateTime date) {
     final month = date.month.toString().padLeft(2, '0');
@@ -34,6 +37,7 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
     final now = DateTime.now();
     _todayDate = DateTime(now.year, now.month, now.day);
     _loadWorkouts();
+    _fetchSteps();
   }
 
   Future<void> _loadWorkouts() async {
@@ -53,6 +57,45 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
           _showAddWorkoutDialog();
         }
       });
+    }
+  }
+
+  Future<void> _fetchSteps() async {
+    // Request permissions to ensure we can read data from the phone/watch
+    await Permission.activityRecognition.request();
+
+    final health = Health();
+    try {
+      await health.configure();
+      final types = [HealthDataType.STEPS];
+      bool requested = await health.requestAuthorization(types);
+
+      if (requested) {
+        final now = DateTime.now();
+        
+        // Fetch raw data points to get the history of steps for the day
+        List<HealthDataPoint> healthData = await health.getHealthDataFromTypes(
+          startTime: _todayDate,
+          endTime: now,
+          types: types,
+        );
+
+        // Remove duplicates to avoid double counting from multiple sources
+        healthData = health.removeDuplicates(healthData);
+
+        int steps = 0;
+        for (var point in healthData) {
+          steps += (point.value as NumericHealthValue).numericValue.toInt();
+        }
+
+        if (mounted) {
+          setState(() {
+            _steps = steps;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error requesting health authorization: $e');
     }
   }
 
@@ -253,6 +296,17 @@ class _TodaysWorkoutPageState extends State<TodaysWorkoutPage> {
                           ),
                         ),
                       ],
+                      if (_steps != null)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Steps today: $_steps',
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                          ),
+                        ),
                       Expanded(
                         child: _workouts.isEmpty
                             ? const Center(
